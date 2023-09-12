@@ -67,7 +67,11 @@ public class ExtractAllCommandHandler : ILeafCommandHandler<ExtractAllCommand.Ex
         progress.Increment(1);
 
         Directory.CreateDirectory(extractAllArguments.FramesOutputFolder);
-        Directory.CreateDirectory(extractAllArguments.MasksOutputFolder);
+
+        if (extractAllArguments.ImageMaskGeneration != ExtractAllCommand.ImageMaskGeneration.None)
+        {
+            Directory.CreateDirectory(extractAllArguments.MasksOutputFolder);
+        }
         progress.Increment(1);
 
 
