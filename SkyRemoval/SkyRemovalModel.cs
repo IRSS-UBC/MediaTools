@@ -32,6 +32,7 @@ namespace SkyRemoval
                     ExecutionEngine.CUDA => CreateCudaSession(),
                     ExecutionEngine.TensorRT => SessionOptions.MakeSessionOptionWithTensorrtProvider(),
                     ExecutionEngine.DirectML => CreateDirectMl(),
+                    ExecutionEngine.Auto => throw new ArgumentOutOfRangeException(nameof(engine), engine, null),
                     _ => throw new ArgumentOutOfRangeException(nameof(engine), engine, null)
                 };
 
@@ -239,9 +240,9 @@ namespace SkyRemoval
 
             });
 
-            var NDArray = ImageToNdArray(processingImage);
+            var ndArray = ImageToNdArray(processingImage);
 
-            var npImg = TransposeExpandNdArray(NDArray);
+            var npImg = TransposeExpandNdArray(ndArray);
 
             return NdArrayToDenseTensor(npImg);
         }
