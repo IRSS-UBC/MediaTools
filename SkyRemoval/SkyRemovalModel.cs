@@ -56,6 +56,7 @@ namespace SkyRemoval
         }
 
 
+
         private void AdjustCommonSessionSettings(SessionOptions sessionOptions)
         {
             sessionOptions.GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL;
@@ -69,6 +70,7 @@ namespace SkyRemoval
             foreach (var sessionOptionFactory in sessionOptionFactories)
             {
                 var options = sessionOptionFactory();
+
                 AdjustCommonSessionSettings(options);
 
 
