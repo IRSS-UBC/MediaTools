@@ -25,17 +25,18 @@ namespace SkyRemoval
         private SkyRemovalModel(string modelPath, ExecutionEngine engine, int gpuId)
         {
             Environment.SetEnvironmentVariable("CUDA_MODULE_LOADING", "LAZY");
-            
-            
+
             
             if (engine != ExecutionEngine.Auto)
             {
                 var sessionOptions = engine switch
                 {
                     ExecutionEngine.CPU => CreateCpuSessionOptions(),
+
                     ExecutionEngine.CUDA => CreateCudaSessionOptions(gpuId),
                     ExecutionEngine.TensorRT => CreateTensorRtOptions(gpuId),
                     ExecutionEngine.DirectML => CreateDirectMlOptions(gpuId),
+
                     ExecutionEngine.Auto => throw new ArgumentOutOfRangeException(nameof(engine), engine, null),
                     _ => throw new ArgumentOutOfRangeException(nameof(engine), engine, null)
                 };
@@ -57,13 +58,22 @@ namespace SkyRemoval
         }
 
 
-      
 
-        private InferenceSession CreateInferenceSession(string modelPath, params Func<SessionOptions>[] sessionOptionFactories)
+
+        private void AdjustCommonSessionSettings(SessionOptions sessionOptions)
+        {
+            sessionOptions.GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL;
+            sessionOptions.ExecutionMode = ExecutionMode.ORT_PARALLEL;
+            sessionOptions.EnableMemoryPattern = true;
+        }
+
+        private InferenceSession CreateInferenceSession(string modelPath,
+            params Func<SessionOptions>[] sessionOptionFactories)
         {
             foreach (var sessionOptionFactory in sessionOptionFactories)
             {
                 var options = sessionOptionFactory();
+
                 AdjustCommonSessionSettings(options);
                 
 
@@ -81,13 +91,9 @@ namespace SkyRemoval
 
             throw new Exception("Failed to create an InferenceSession with any provider");
         }
-        
-        private void AdjustCommonSessionSettings(SessionOptions sessionOptions)
-        {
-            sessionOptions.GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL;
-            sessionOptions.ExecutionMode = ExecutionMode.ORT_PARALLEL;
-            sessionOptions.EnableMemoryPattern = true;
-        }
+
+
+
 
         private static SessionOptions CreateCudaSessionOptions(int gpuId = 0, int memoryLimitGb = 6)
         {
@@ -107,6 +113,7 @@ namespace SkyRemoval
 
             cudaProviderOptions.UpdateOptions(providerOptionsDict);
 
+
             var options = new SessionOptions();
             options.CheckCudaExecutionProviderDLLs();
             options.AppendExecutionProvider_CUDA(cudaProviderOptions);
@@ -123,7 +130,9 @@ namespace SkyRemoval
             return sessionOptions;
         }
 
+
         private static SessionOptions CreateTensorRtOptions(int gpuId = 0, int memoryLimitGb = 6)
+
         {
             var providerOptionsDict = new Dictionary<string, string>
             {
@@ -134,6 +143,7 @@ namespace SkyRemoval
                 ["trt_context_memory_sharing_enable"] = "1",
                 ["trt_builder_optimization_level"] = "5",
                 ["trt_engine_cache_path"] = "trt_engine_cache",
+
                 ["device_id"] = gpuId.ToString(),
                 ["gpu_mem_limit"] = (memoryLimitGb * 1024 * 1024 * 1024).ToString()
 
