@@ -30,7 +30,7 @@
         <PackageReference Include="FFMediaToolkit" Version="4.4.1" />
         <PackageReference Include="Lib.Harmony" Version="2.3.0-prerelease.2" />
         <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.0-preview.3.23174.8" />
-        <PackageReference Include="SixLabors.ImageSharp" Version="3.0.1" />
+        <PackageReference Include="SixLabors.ImageSharp" Version="3.1.3" />
         <PackageReference Include="SixLabors.ImageSharp.Drawing" Version="1.0.0-beta15" />
         <PackageReference Include="Spectre.Console" Version="0.46.1-preview.0.20" />
         <PackageReference Include="Spectre.Console.ImageSharp" Version="0.46.1-preview.0.20" />
