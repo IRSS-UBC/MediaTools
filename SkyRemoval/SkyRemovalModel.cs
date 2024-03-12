@@ -76,8 +76,6 @@ namespace SkyRemoval
 
                 AdjustCommonSessionSettings(options);
                 
-
-
                 try
                 {
                     var inferenceSession = new InferenceSession(modelPath, sessionOptionFactory());
@@ -95,7 +93,7 @@ namespace SkyRemoval
 
 
 
-        private static SessionOptions CreateCudaSessionOptions(int gpuId = 0, int memoryLimitGb = 6)
+        private static SessionOptions CreateCudaSessionOptions(int gpuId = 0)
         {
             var cudaProviderOptions = new OrtCUDAProviderOptions(); // Dispose this finally
             
@@ -130,7 +128,7 @@ namespace SkyRemoval
         }
 
 
-        private static SessionOptions CreateTensorRtOptions(int gpuId = 0, int memoryLimitGb = 6)
+        private static SessionOptions CreateTensorRtOptions(int gpuId = 0)
 
         {
             var providerOptionsDict = new Dictionary<string, string>
@@ -154,6 +152,7 @@ namespace SkyRemoval
             var options = new SessionOptions();
             options.CheckTensorrtExecutionProviderDLLs();
             options.AppendExecutionProvider_Tensorrt(rtOptions);
+            
 
             return options;
         }

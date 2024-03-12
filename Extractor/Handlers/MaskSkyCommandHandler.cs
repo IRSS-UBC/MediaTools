@@ -46,7 +46,6 @@ public class MaskSkyCommandHandler : ILeafCommandHandler<MaskSkyCommand.MaskSkyA
                     _models.Add(await SkyRemovalModel.CreateAsync(arguments.Engine, gpu));
                 }
                 
-                
             
                 loadingModelProgressTask.Complete();
 
@@ -70,25 +69,33 @@ public class MaskSkyCommandHandler : ILeafCommandHandler<MaskSkyCommand.MaskSkyA
 
                 var processorCount = Environment.ProcessorCount;
 
+                var loadedModelCount = _models.Count;
 
                 var parallelDataFlowBlockExecutionOptions = new ExecutionDataflowBlockOptions
                 {
                     MaxDegreeOfParallelism = processorCount,
-                    BoundedCapacity = processorCount * 2,
+                    BoundedCapacity = loadedModelCount,
                     EnsureOrdered = false,
                 };
 
                 var serialDataFlowBlockExecutionOptions = new ExecutionDataflowBlockOptions
                 {
                     MaxDegreeOfParallelism = 1,
+                    BoundedCapacity = loadedModelCount,
                     EnsureOrdered = false,
-                    BoundedCapacity = 1
+                };
+
+                var MatchedDataFlowBlockExecutionOptions = new ExecutionDataflowBlockOptions()
+                {
+                    MaxDegreeOfParallelism = loadedModelCount,
+                    BoundedCapacity = loadedModelCount,
+                    EnsureOrdered = false
                 };
 
                 var dataflowBlockOptions = new DataflowBlockOptions
                 {
                     EnsureOrdered = false,
-                    BoundedCapacity = processorCount * 4
+                    BoundedCapacity = 2
                 };
                 
                 var dataflowLinkOptions = new DataflowLinkOptions
@@ -98,17 +105,19 @@ public class MaskSkyCommandHandler : ILeafCommandHandler<MaskSkyCommand.MaskSkyA
                 };
 
 
-                var inputBufferBlock = new BufferBlock<string>(dataflowBlockOptions);
+                var inputBufferBlock = new BufferBlock<string>();
 
 
                 var loadImageBlock = new TransformBlock<string, ImageContainer>(async path =>
                 {
                     var img = await Image.LoadAsync(path);
+                    
+                    
 
                     loadImageProgressTask.Increment(1);
 
                     return new ImageContainer(img, path);
-                }, parallelDataFlowBlockExecutionOptions);
+                }, MatchedDataFlowBlockExecutionOptions);
 
 
                 var imageBufferBlock = new BufferBlock<ImageContainer>(dataflowBlockOptions);
@@ -180,18 +189,8 @@ public class MaskSkyCommandHandler : ILeafCommandHandler<MaskSkyCommand.MaskSkyA
 
                 foreach (var frame in frameList)
                 {
-
-                    while (true)
-                    {
-                        var memory = GC.GetTotalMemory(forceFullCollection: true); // Returns the current memory usage in bytes
-
-                        if ((maxMemory - memory) >= 30000000) // Checks if there's at least 30 MB free within your set limit
-                        {
-                            await inputBufferBlock.SendAsync(frame);
-                            break; // Once the SendAsync is executed, break from the while loop
-                        }
-                        Thread.Sleep(500); // If there's not enough memory, wait for a bit before checking again
-                    }
+                    
+                    await inputBufferBlock.SendAsync(frame);
                 }
 
                 inputBufferBlock.Complete();
