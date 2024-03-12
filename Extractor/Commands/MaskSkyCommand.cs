@@ -1,5 +1,6 @@
 ﻿using Extractor.Handlers;
 using SkyRemoval;
+using Spectre.Console;
 using TreeBasedCli;
 using TreeBasedCli.Exceptions;
 
@@ -40,21 +41,22 @@ public class MaskSkyCommand : LeafCommand<MaskSkyCommand.MaskSkyArguments, MaskS
                                Path.GetFileNameWithoutExtension(inputPath) + "_mask";
             var engine = arguments.GetArgumentOrNull(CommandOptions.EngineLabel)
                 ?.ExpectedAsEnumValue<ExecutionEngine>();
-            var processorCount = arguments.GetArgumentOrNull(CommandOptions.GPUCount)?.ExpectedAsSingleValue() ?? "1";
-            
+            var processorCount = arguments.GetArgumentOrNull(CommandOptions.GpuCount)?.ExpectedAsSingleValue() ?? "1";
+
             if (int.TryParse(processorCount, out var count))
             {
                 if (count < 1)
                 {
-                    throw new MessageOnlyException("Processor count must be at least 1.");
+                    AnsiConsole.MarkupLine("[red]Processor count must be at least 1.[/]");
+                    AnsiConsole.MarkupLine("[red]Setting count to 1.[/]");
+                    count = 1;
                 }
             }
             else
             {
                 throw new MessageOnlyException("Processor count must be an integer.");
             }
-            
-          
+
 
             var inputDirectory = PathType.None;
 
@@ -79,7 +81,7 @@ public class MaskSkyCommand : LeafCommand<MaskSkyCommand.MaskSkyArguments, MaskS
                 outputFolder,
                 inputDirectory,
                 engine ?? ExecutionEngine.Auto,
-                int.Parse(processorCount)
+                count
             );
 
 
