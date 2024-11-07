@@ -7,6 +7,7 @@ using HarmonyLib;
 using Spectre.Console;
 using TreeBasedCli;
 using TreeBasedCli.Exceptions;
+
 namespace Extractor;
 
 public static class Program
@@ -79,8 +80,8 @@ public static class Program
     private static bool AreStandardStreamsAvailable()
     {
         return Console.OpenStandardInput(1) != Stream.Null &&
-            Console.OpenStandardOutput(1) != Stream.Null &&
-            Console.OpenStandardError(1) != Stream.Null;
+               Console.OpenStandardOutput(1) != Stream.Null &&
+               Console.OpenStandardError(1) != Stream.Null;
     }
 
     private static bool IsConsoleHandleAvailable()
@@ -179,13 +180,15 @@ public static class Program
         return new BranchCommandBuilder("")
             .WithDesription(new[]
             {
-                "IRSS Media Tools is a command-line tool for extracting, converting, and working with media files.", "Unless otherwise stated, all commands will use the current working directory as the input/output folder."
+                "IRSS Media Tools is a command-line tool for extracting, converting, and working with media files.",
+                "Unless otherwise stated, all commands will use the current working directory as the input/output folder."
             })
             .WithChildCommand(new ExtractAllCommand())
             .WithChildCommand(new ListInformationCommand())
             .WithChildCommand(new ConvertCommand())
             .WithChildCommand(new AnimateCommand())
             .WithChildCommand(new MaskSkyCommand())
+            .WithChildCommand(new NormalizeLuminanceCommand())
             .Build();
     }
 
