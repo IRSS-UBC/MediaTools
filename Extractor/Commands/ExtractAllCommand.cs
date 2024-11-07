@@ -20,12 +20,13 @@ public class ExtractAllCommand : LeafCommand<ExtractAllCommand.ExtractAllArgumen
             {
                 "The ratio of frames to drop from the output. (e.g., 0 = no drop, 0.5 = half, 1 = all). Default: 0"
             }),
+            CommandOptions.OutputFrameRate,
             CommandOptions.Mask
         })
     {
     }
 
-    public record ExtractAllArguments(string InputFile, string FramesOutputFolder, string MasksOutputFolder, string OutputFormat, float DropRatio, ImageMaskGeneration ImageMaskGeneration) : IParsedCommandArguments;
+    public record ExtractAllArguments(string InputFile, string FramesOutputFolder, string MasksOutputFolder, string OutputFormat, float DropRatio, int? FrameRate, ImageMaskGeneration ImageMaskGeneration) : IParsedCommandArguments;
 
     public class Parser : ICommandArgumentParser<ExtractAllArguments>
     {
@@ -36,7 +37,7 @@ public class ExtractAllCommand : LeafCommand<ExtractAllCommand.ExtractAllArgumen
             var masksOutputFolder = arguments.GetArgumentOrNull(CommandOptions.MaskOutputLabel)?.ExpectedAsSingleValue() ?? framesOutputFolder + "_mask";
             var outputFormat = (arguments.GetArgumentOrNull(CommandOptions.OutputFormatLabel)?.ExpectedAsSingleValue() ?? "jpg").ToLowerInvariant().Replace(".", "", StringComparison.InvariantCultureIgnoreCase);
             var dropRatioString = arguments.GetArgumentOrNull(CommandOptions.OutputFrameDropRatioLabel)?.ExpectedAsSingleValue();
-
+            var fpsString = arguments.GetArgumentOrNull(CommandOptions.FrameRateLabel)?.ExpectedAsSingleValue();
             var mask = arguments.GetArgumentOrNull(CommandOptions.MaskLabel)?.ExpectedAsSingleValue();
 
 
@@ -73,12 +74,26 @@ public class ExtractAllCommand : LeafCommand<ExtractAllCommand.ExtractAllArgumen
             else
                 dropRatio = 0;
 
+
+            int? fps;
+            if (int.TryParse(fpsString, out var fpsResult))
+            {
+                fps = fpsResult;
+            }
+            else
+            {
+                fps = null;
+            }
+               
+            
+
             var result = new ExtractAllArguments(
                 inputFile,
                 framesOutputFolder,
                 masksOutputFolder,
                 outputFormat,
                 Math.Abs(dropRatio),
+                fps,
                 imageMaskGeneration
             );
 
