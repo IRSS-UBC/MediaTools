@@ -18,6 +18,8 @@ public class
         var inputDirectory = arguments.InputDir;
         var outputDirectory = arguments.OutputDir;
 
+        bool normalizeExposure = true;
+
 
         Directory.CreateDirectory(outputDirectory);
 
@@ -55,7 +57,8 @@ public class
             {
                 await Task.Run(() =>
                 {
-                    NormalizeImageLuminance(file, outputDirectory, averageLuminance);
+                    NormalizeImageExposure(file, outputDirectory, averageLuminance);
+
                     return true;
                 });
                 task.Increment(1);
@@ -63,8 +66,6 @@ public class
 
             await Task.WhenAll(normalizationTasks);
         });
-
-
     }
 
 
@@ -91,11 +92,11 @@ public class
         }
     }
 
-    static bool NormalizeImageLuminance(string imagePath, string outputPath, double averageLuminance)
+
+    static bool NormalizeImageExposure(string imagePath, string outputPath, double globalMeanLuminance)
     {
         try
         {
-            
             Mat image = CvInvoke.Imread(imagePath);
 
             // Convert the image to HSV color space
@@ -105,20 +106,23 @@ public class
             // Split the HSV image into separate channels (Hue, Saturation, and Value)
             var hsvChannels = new VectorOfMat();
             CvInvoke.Split(hsvImage, hsvChannels);
-            var valueChannel = hsvChannels[2]; // Value channel represents the brightness
+            var valueChannel = hsvChannels[2]; // Value channel represents brightness
 
             // Calculate the current mean luminance of the image
             var currentMeanValue = CvInvoke.Mean(valueChannel);
             var currentLuminance = currentMeanValue.V0;
 
-            // Normalize the value channel based on the average luminance
-            var scaleFactor = averageLuminance / currentLuminance;
+            // Calculate scaling factor based on global mean luminance
+            var scaleFactor = globalMeanLuminance / currentLuminance;
             valueChannel *= scaleFactor;
+
+            // Clip pixel values to the range [0, 255] to avoid overflows
+            CvInvoke.Min(valueChannel, new ScalarArray(255), valueChannel);
+            CvInvoke.Max(valueChannel, new ScalarArray(0), valueChannel);
 
             // Merge the modified value channel back with the other HSV channels
             hsvChannels = new VectorOfMat(hsvChannels[0], hsvChannels[1], valueChannel);
             CvInvoke.Merge(hsvChannels, hsvImage);
-
 
             // Convert back to BGR color space
             var normalizedImage = new Mat();
@@ -126,11 +130,10 @@ public class
 
             // Save the normalized image to the output path with the same file name
             var outputFilePath = Path.Combine(outputPath, Path.GetFileName(imagePath));
-            
-            AnsiConsole.Console.WriteLine($"[green]Normalized image saved to {outputFilePath}. Mean luminance adjusted from {currentLuminance} to {averageLuminance}[/] ");
-            
-            
             CvInvoke.Imwrite(outputFilePath, normalizedImage);
+
+            AnsiConsole.Console.WriteLine(
+                $"[green]Exposure-normalized image saved to {outputFilePath}. Mean luminance adjusted from {currentLuminance} to {globalMeanLuminance}[/]");
 
             return true;
         }
@@ -138,7 +141,6 @@ public class
         {
             AnsiConsole.Console.WriteLine(
                 $"[red]Warning: Error processing image at {imagePath}: {ex.Message}. Skipping this image.[/]");
-
             return false;
         }
     }
