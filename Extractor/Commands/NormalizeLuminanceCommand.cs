@@ -15,7 +15,9 @@ public class NormalizeLuminanceCommand : LeafCommand<NormalizeLuminanceCommand.N
         new[]
         {
             CommandOptions.InputOption,
-            CommandOptions.OutputOption
+            CommandOptions.OutputOption,
+
+            
         })
     {
     }

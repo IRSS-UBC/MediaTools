@@ -66,14 +66,18 @@ public class
         luminanceValuesList.Sort((a, b) => new NaturalSortComparer().Compare(a.FilePath, b.FilePath));
 
 
-        var averageLuminance = new MinMaxMean();
+        var averageLuminance = new LuminanceValues();
 
         if (globalAverage)
         {
-            averageLuminance = new MinMaxMean(
+            var avgVariance = luminanceValuesList.Average(record => Math.Pow(record.Luminance.StdDev, 2));
+            var avgStdDev = Math.Sqrt(avgVariance);
+
+            averageLuminance = new LuminanceValues(
                 luminanceValues.Average(record => record.Luminance.Min),
                 luminanceValues.Average(record => record.Luminance.Max),
-                luminanceValues.Average(record => record.Luminance.Mean)
+                luminanceValues.Average(record => record.Luminance.Mean),
+                avgStdDev
             );
         }
         else
@@ -107,7 +111,7 @@ public class
     }
 
 
-    private static MinMaxMean CalculateAverageImageLuminance(string imagePath)
+    private static LuminanceValues CalculateAverageImageLuminance(string imagePath)
     {
         try
         {
@@ -122,36 +126,25 @@ public class
             // CvInvoke.Normalize(valueChannel, valueChannel, 0, 255, NormType.MinMax);
 
 
-            var meanValue = CvInvoke.Mean(valueChannel);
-
-
-            double minValue = 0, maxValue = 0;
-            System.Drawing.Point minLoc = new(), maxLoc = new();
-            CvInvoke.MinMaxLoc(valueChannel, ref minValue, ref maxValue, ref minLoc, ref maxLoc);
+            var value = GetCurrentLuminance(valueChannel);
 
 
             image.Dispose();
             hsvImage.Dispose();
-
             valueChannel.Dispose();
 
-            return new MinMaxMean
-            {
-                Min = minValue,
-                Max = maxValue,
-                Mean = meanValue.V0
-            };
+            return value;
         }
         catch (Exception ex)
         {
             AnsiConsole.Console.WriteLine(
                 $"[red]Warning: Error processing image at {imagePath}: {ex.Message}. Skipping this image.[/]");
-            return new MinMaxMean();
+            return new LuminanceValues();
         }
     }
 
 
-    static bool NormalizeImageExposure(string imagePath, string outputPath, MinMaxMean targetLuminance)
+    static bool NormalizeImageExposure(string imagePath, string outputPath, LuminanceValues targetLuminance)
     {
         try
         {
@@ -170,38 +163,50 @@ public class
 
             // Apply Gamma Correction to boost dark areas
             double gamma = 0.5; // Lower values (<1) lighten dark areas, while values >1 darken
-            
+
 
             var workingImage = new Mat();
 
-            double alpha = 256 - 56; // normally alpha would be 256, but we're using 200 to avoid clipping in further processing
-            
-            valueChannel.ConvertTo(workingImage, DepthType.Cv16U, alpha); 
-            
+            double
+                alpha = 256 -
+                        56; // normally alpha would be 256, but we're using 200 to avoid clipping in further processing
+
+            valueChannel.ConvertTo(workingImage, DepthType.Cv16U, alpha);
+
             valueChannel = workingImage;
 
-            
+
             valueChannel = ApplyGammaCorrection(valueChannel, gamma, DepthType.Cv16U);
-
-        
-
 
 
             // Apply CLAHE to the Value channel
-            double clipLimit = 10; 
+            double clipLimit = 10;
             System.Drawing.Size tileGridSize = new System.Drawing.Size(8, 8);
             CvInvoke.CLAHE(valueChannel, clipLimit, tileGridSize, valueChannel);
 
 
             // Calculate current luminance statistics (min, max, mean) of the value channel
-            var currentLuminance = getCurrentLuminance(valueChannel);
-            
+            var currentLuminance = GetCurrentLuminance(valueChannel);
+
             //Console.WriteLine($"Current Luminance: Min={currentLuminance.Min}, Max={currentLuminance.Max}, Mean={currentLuminance.Mean}");
 
-            
+
             // Calculate the scaling factor for the value channel
-            double scale = (targetLuminance.Mean * alpha) / currentLuminance.Mean;
+
+
+            valueChannel.ConvertTo(valueChannel, DepthType.Cv32F);
+
+
+            valueChannel -= currentLuminance.Mean;
+            
+
+            double epsilon = 1e-6; // Small value to prevent division by zero
+            double scale = targetLuminance.StdDev / (currentLuminance.StdDev + epsilon);
+            
+            
             valueChannel *= scale;
+
+            valueChannel += targetLuminance.Max;
 
 
             // normalize the value channel to 0-255
@@ -235,19 +240,21 @@ public class
         }
     }
 
-    private static MinMaxMean getCurrentLuminance(Mat valueChannel)
+    private static LuminanceValues GetCurrentLuminance(Mat valueChannel)
     {
+        MCvScalar mean = new(0), stddev = new(0);
+        CvInvoke.MeanStdDev(valueChannel, ref mean, ref stddev);
+
+
         double currentMin = 0, currentMax = 0;
         System.Drawing.Point minLoc = new(), maxLoc = new();
         CvInvoke.MinMaxLoc(valueChannel, ref currentMin, ref currentMax, ref minLoc, ref maxLoc);
-        
-        var currentMean = CvInvoke.Mean(valueChannel).V0;
 
-        
-        return new MinMaxMean(currentMin, currentMax, currentMean);
+
+        return new LuminanceValues(currentMin, currentMax, mean.V0, stddev.V0);
     }
-    
-    
+
+
     static Mat ApplyGammaCorrection(Mat src, double gamma, DepthType depthType = DepthType.Cv8U)
     {
         Mat srcFloat = new Mat();
@@ -273,71 +280,103 @@ public class
         }
 
         // Step 2: Apply gamma correction (element-wise power transformation)
-        CvInvoke.Pow(srcFloat, gamma, srcFloat);  // Applies the power transformation to each pixel
+        CvInvoke.Pow(srcFloat, gamma, srcFloat); // Applies the power transformation to each pixel
 
         // Step 3: Convert back to the original depth type and scale accordingly
         if (depthType == DepthType.Cv8U)
         {
-            srcFloat.ConvertTo(dst, DepthType.Cv8U, 255.0);  // Scale back to [0, 255] for 8-bit
+            srcFloat.ConvertTo(dst, DepthType.Cv8U, 255.0); // Scale back to [0, 255] for 8-bit
         }
         else if (depthType == DepthType.Cv16U)
         {
-            srcFloat.ConvertTo(dst, DepthType.Cv16U, 65535.0);  // Scale back to [0, 65535] for 16-bit
+            srcFloat.ConvertTo(dst, DepthType.Cv16U, 65535.0); // Scale back to [0, 65535] for 16-bit
         }
         else if (depthType == DepthType.Cv32F)
         {
-            dst = srcFloat.Clone();  // No scaling needed for 32F; just copy the result
+            dst = srcFloat.Clone(); // No scaling needed for 32F; just copy the result
         }
 
         return dst;
     }
 
 
-
-
-
-    private MinMaxMean[] CalculateRollingAverage(IReadOnlyList<ImageLuminanceRecord> luminanceValues, int windowSize)
+    private LuminanceValues[] CalculateRollingAverage(IReadOnlyList<ImageLuminanceRecord> luminanceValues,
+        int windowSize)
     {
-        var rollingAverages = new MinMaxMean[luminanceValues.Count];
-        var rollingSums = new double[3]; // [0] = Min, [1] = Max, [2] = Mean
+        int n = luminanceValues.Count;
+        var rollingAverages = new LuminanceValues[n];
 
-        for (var i = 0; i < luminanceValues.Count; i++)
+        // Precompute cumulative sums and cumulative sum of squares
+        var cumSumMin = new double[n + 1];
+        var cumSumMax = new double[n + 1];
+        var cumSumMean = new double[n + 1];
+        var cumSumMeanSquares = new double[n + 1];
+
+        for (int i = 0; i < n; i++)
         {
-            // Add current luminance values to the rolling sums
-            for (var j = 0; j < 3; j++)
+            var currentLuminance = luminanceValues[i].Luminance;
+            cumSumMin[i + 1] = cumSumMin[i] + currentLuminance.Min;
+            cumSumMax[i + 1] = cumSumMax[i] + currentLuminance.Max;
+            cumSumMean[i + 1] = cumSumMean[i] + currentLuminance.Mean;
+            cumSumMeanSquares[i + 1] = cumSumMeanSquares[i] + currentLuminance.Mean * currentLuminance.Mean;
+        }
+
+        // Determine the start index for the fixed window at the end
+        int fixedWindowStartIndex = Math.Max(0, n - windowSize);
+        int fixedWindowSize = n - fixedWindowStartIndex;
+
+        for (int i = 0; i < n; i++)
+        {
+            int windowStartIndex, windowEndIndex, effectiveWindowSize;
+
+            if (i + windowSize <= n)
             {
-                rollingSums[j] += luminanceValues[i].Luminance[j];
-                if (i >= windowSize)
-                {
-                    rollingSums[j] -= luminanceValues[i - windowSize].Luminance[j];
-                }
+                // Normal case: window moves forward
+                windowStartIndex = i;
+                windowEndIndex = i + windowSize;
+                effectiveWindowSize = windowSize;
+            }
+            else
+            {
+                // Near the end: use fixed window
+                windowStartIndex = fixedWindowStartIndex;
+                windowEndIndex = n;
+                effectiveWindowSize = fixedWindowSize;
             }
 
-            // Calculate the rolling averages and assign to rollingAverages[i]
-            var effectiveWindowSize = Math.Min(i + 1, windowSize);
-            rollingAverages[i] = new MinMaxMean
-            {
-                Min = rollingSums[0] / effectiveWindowSize,
-                Max = rollingSums[1] / effectiveWindowSize,
-                Mean = rollingSums[2] / effectiveWindowSize
-            };
+            double sumMin = cumSumMin[windowEndIndex] - cumSumMin[windowStartIndex];
+            double sumMax = cumSumMax[windowEndIndex] - cumSumMax[windowStartIndex];
+            double sumMean = cumSumMean[windowEndIndex] - cumSumMean[windowStartIndex];
+            double sumMeanSquares = cumSumMeanSquares[windowEndIndex] - cumSumMeanSquares[windowStartIndex];
+
+            double avgMin = sumMin / effectiveWindowSize;
+            double avgMax = sumMax / effectiveWindowSize;
+            double avgMean = sumMean / effectiveWindowSize;
+
+            double variance = (sumMeanSquares / effectiveWindowSize) - (avgMean * avgMean);
+            variance = Math.Max(variance, 0);
+            double stdDev = Math.Sqrt(variance);
+
+            rollingAverages[i] = new LuminanceValues(avgMin, avgMax, avgMean, stdDev);
         }
 
         return rollingAverages;
     }
 }
 
-public struct ImageLuminanceRecord(string filePath, MinMaxMean luminance)
+public struct ImageLuminanceRecord(string filePath, LuminanceValues luminance)
 {
     public string FilePath { get; set; } = filePath;
-    public MinMaxMean Luminance { get; set; } = luminance;
+    public LuminanceValues Luminance { get; set; } = luminance;
 }
 
-public struct MinMaxMean(double min, double max, double mean)
+public struct LuminanceValues(double min, double max, double mean, double stdDev)
 {
-    public double Min { get; set; } = min;
-    public double Max { get; set; } = max;
-    public double Mean { get; set; } = mean;
+    public double Min { get; init; } = min;
+    public double Max { get; init; } = max;
+    public double Mean { get; init; } = mean;
+
+    public double StdDev { get; init; } = stdDev;
 
     public double this[int i]
     {
@@ -348,24 +387,9 @@ public struct MinMaxMean(double min, double max, double mean)
                 0 => Min,
                 1 => Max,
                 2 => Mean,
+                3 => StdDev,
                 _ => 0
             };
-        }
-
-        set
-        {
-            switch (i)
-            {
-                case 0:
-                    Min = value;
-                    break;
-                case 1:
-                    Max = value;
-                    break;
-                case 2:
-                    Mean = value;
-                    break;
-            }
         }
     }
 }
