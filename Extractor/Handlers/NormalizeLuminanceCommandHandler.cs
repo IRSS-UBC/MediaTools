@@ -93,7 +93,7 @@ public class
     }
 
 
-    static bool NormalizeImageExposure(string imagePath, string outputPath, double globalMeanLuminance)
+       static bool NormalizeImageExposure(string imagePath, string outputPath, double globalMeanLuminance)
     {
         try
         {
@@ -107,6 +107,12 @@ public class
             var hsvChannels = new VectorOfMat();
             CvInvoke.Split(hsvImage, hsvChannels);
             var valueChannel = hsvChannels[2]; // Value channel represents brightness
+
+            // Apply CLAHE to the Value channel
+            double clipLimit = 2.0; // Adjust as needed
+            System.Drawing.Size tileGridSize = new System.Drawing.Size(8, 8); 
+            CvInvoke.CLAHE(valueChannel, clipLimit, tileGridSize, valueChannel);
+
 
             // Calculate the current mean luminance of the image
             var currentMeanValue = CvInvoke.Mean(valueChannel);
