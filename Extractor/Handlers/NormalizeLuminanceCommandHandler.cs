@@ -18,7 +18,7 @@ public class
         var inputDirectory = arguments.InputDir;
         var outputDirectory = arguments.OutputDir;
 
-        bool normalizeExposure = true;
+        bool globalAverage = false;
 
 
         Directory.CreateDirectory(outputDirectory);
@@ -37,7 +37,8 @@ public class
                     var task = ctx.AddTask("[yellow]Scanning luminance for images...[/]", maxValue: files.Length);
                     var luminanceTasks = files.Select(async file =>
                     {
-                        var luminance = await Task.Run(() => CalculateAverageImageLuminance(file));
+                        var luminance = await Task.Run(() =>
+                            new ImageLuminanceRecord(file, CalculateAverageImageLuminance(file)));
                         task.Increment(1);
                         return luminance;
                     }).ToArray();
@@ -46,18 +47,32 @@ public class
                 });
 
 
-        luminanceValues = luminanceValues.Where(value => value > 0).ToArray();
+        var luminanceValuesList = luminanceValues.Where(record => record.Luminance > 0).ToList();
 
-        var averageLuminance = luminanceValues.Average();
+
+        luminanceValuesList.Sort((a, b) => new NaturalSortComparer().Compare(a.FilePath, b.FilePath));
+        
+        var rollingAverages = CalculateRollingAverage(luminanceValuesList, 10);
+            
+            
+        // update the luminance values with the rolling averages
+        for (var i = 0; i < luminanceValuesList.Count; i++)
+        {
+            luminanceValuesList[i] = new ImageLuminanceRecord(luminanceValuesList[i].FilePath, rollingAverages[i]);
+        }
+
+
+        var averageLuminance = luminanceValues.Average(record => record.Luminance);
 
         await AnsiConsole.Progress().StartAsync(async ctx =>
         {
             var task = ctx.AddTask("[yellow]Normalizing luminance and saving to disk...[/]", maxValue: files.Length);
-            var normalizationTasks = files.Select(async file =>
+            var normalizationTasks = luminanceValues.Select(async record =>
             {
                 await Task.Run(() =>
                 {
-                    NormalizeImageExposure(file, outputDirectory, averageLuminance);
+                    NormalizeImageExposure(record.FilePath, outputDirectory,
+                        globalAverage ? averageLuminance : record.Luminance);
 
                     return true;
                 });
@@ -81,6 +96,9 @@ public class
             Mat[] hsvChannels = hsvImage.Split();
             Mat valueChannel = hsvChannels[2];
 
+           // CvInvoke.Normalize(valueChannel, valueChannel, 0, 255, NormType.MinMax);
+
+
             MCvScalar meanValue = CvInvoke.Mean(valueChannel);
             return meanValue.V0;
         }
@@ -93,7 +111,7 @@ public class
     }
 
 
-       static bool NormalizeImageExposure(string imagePath, string outputPath, double globalMeanLuminance)
+    static bool NormalizeImageExposure(string imagePath, string outputPath, double globalMeanLuminance)
     {
         try
         {
@@ -108,9 +126,16 @@ public class
             CvInvoke.Split(hsvImage, hsvChannels);
             var valueChannel = hsvChannels[2]; // Value channel represents brightness
 
+
+            //CvInvoke.Normalize(valueChannel, valueChannel, 0, 255, NormType.MinMax);
+
+            // Apply Gamma Correction to boost dark areas
+            double gamma = 0.5; // Lower values (<1) lighten dark areas, while values >1 darken
+            valueChannel = ApplyGammaCorrection(valueChannel, gamma);
+
             // Apply CLAHE to the Value channel
             double clipLimit = 2.0; // Adjust as needed
-            System.Drawing.Size tileGridSize = new System.Drawing.Size(8, 8); 
+            System.Drawing.Size tileGridSize = new System.Drawing.Size(8, 8);
             CvInvoke.CLAHE(valueChannel, clipLimit, tileGridSize, valueChannel);
 
 
@@ -123,8 +148,9 @@ public class
             valueChannel *= scaleFactor;
 
             // Clip pixel values to the range [0, 255] to avoid overflows
-            CvInvoke.Min(valueChannel, new ScalarArray(255), valueChannel);
-            CvInvoke.Max(valueChannel, new ScalarArray(0), valueChannel);
+            //CvInvoke.Min(valueChannel, new ScalarArray(255), valueChannel);
+            //CvInvoke.Max(valueChannel, new ScalarArray(0), valueChannel);
+
 
             // Merge the modified value channel back with the other HSV channels
             hsvChannels = new VectorOfMat(hsvChannels[0], hsvChannels[1], valueChannel);
@@ -138,8 +164,6 @@ public class
             var outputFilePath = Path.Combine(outputPath, Path.GetFileName(imagePath));
             CvInvoke.Imwrite(outputFilePath, normalizedImage);
 
-            AnsiConsole.Console.WriteLine(
-                $"[green]Exposure-normalized image saved to {outputFilePath}. Mean luminance adjusted from {currentLuminance} to {globalMeanLuminance}[/]");
 
             return true;
         }
@@ -150,4 +174,43 @@ public class
             return false;
         }
     }
+
+
+    private static Mat ApplyGammaCorrection(Mat src, double gamma)
+    {
+        Mat dst = new Mat();
+        src.ConvertTo(dst, DepthType.Cv8U, 1.0 / gamma, 0);
+        return dst;
+    }
+
+
+    private double[] CalculateRollingAverage(IReadOnlyList<ImageLuminanceRecord> luminanceValues, int windowSize)
+    {
+        var rollingAverages = new double[luminanceValues.Count];
+        double rollingSum = 0;
+
+        for (var i = 0; i < luminanceValues.Count; i++)
+        {
+            // Add the current luminance value to the rolling sum
+            rollingSum += luminanceValues[i].Luminance;
+
+            // If we've exceeded the window size, subtract the oldest value
+            if (i >= windowSize)
+            {
+                rollingSum -= luminanceValues[i - windowSize].Luminance;
+            }
+
+            // Calculate the rolling average
+            var effectiveWindowSize = Math.Min(i + 1, windowSize);
+            rollingAverages[i] = rollingSum / effectiveWindowSize;
+        }
+
+        return rollingAverages;
+    }
+}
+
+public struct ImageLuminanceRecord(string filePath, double luminance)
+{
+    public string FilePath { get; set; } = filePath;
+    public double Luminance { get; set; } = luminance;
 }
