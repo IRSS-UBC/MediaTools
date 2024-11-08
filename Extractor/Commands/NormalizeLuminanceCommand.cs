@@ -20,15 +20,14 @@ public class NormalizeLuminanceCommand : LeafCommand<NormalizeLuminanceCommand.N
     {
     }
 
-    public record NormalizeLuminanceArguments(string InputDirectory, string OutputDir) : IParsedCommandArguments;
+    public record NormalizeLuminanceArguments(string InputDir, string OutputDir) : IParsedCommandArguments;
 
     public class Parser : ICommandArgumentParser<NormalizeLuminanceArguments>
     {
         public IParseResult<NormalizeLuminanceArguments> Parse(CommandArguments arguments)
         {
             var inputDir = arguments.GetArgument(CommandOptions.InputLabel).ExpectedAsSinglePathToExistingDirectory();
-            var outputDir = arguments.GetArgumentOrNull(CommandOptions.OutputLabel)?.ExpectedAsSingleValue() ??
-                            Path.GetFileNameWithoutExtension(inputDir);
+            var outputDir = arguments.GetArgument(CommandOptions.OutputLabel)?.ExpectedAsSingleValue();
 
 
             var result = new NormalizeLuminanceArguments(

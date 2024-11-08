@@ -1,6 +1,7 @@
 ﻿using Emgu.CV;
 using Emgu.CV.CvEnum;
 using Emgu.CV.Structure;
+using Emgu.CV.Util;
 using Extractor.Commands;
 using Spectre.Console;
 using TreeBasedCli;
@@ -14,7 +15,12 @@ public class
     public async Task HandleAsync(NormalizeLuminanceCommand.NormalizeLuminanceArguments arguments,
         LeafCommand executedCommand)
     {
-        var inputDirectory = arguments.InputDirectory;
+        var inputDirectory = arguments.InputDir;
+        var outputDirectory = arguments.OutputDir;
+
+
+        Directory.CreateDirectory(outputDirectory);
+
 
         // read all files in the input directory
         // for each file, read the image, convert to HSV, and calculate the average luminance
@@ -22,45 +28,58 @@ public class
         var files = Constants.SupportedExtensions
             .SelectMany(ext => Directory.GetFiles(inputDirectory, ext, SearchOption.AllDirectories)).ToArray();
 
+        var luminanceValues =
+            await AnsiConsole.Progress()
+                .StartAsync(async ctx =>
+                {
+                    var task = ctx.AddTask("[yellow]Scanning luminance for images...[/]", maxValue: files.Length);
+                    var luminanceTasks = files.Select(async file =>
+                    {
+                        var luminance = await Task.Run(() => CalculateAverageImageLuminance(file));
+                        task.Increment(1);
+                        return luminance;
+                    }).ToArray();
 
-        var tasks = files.Select((file, index) => Task.Run(() => CalculateAverageImageLuminance(file))).ToArray();
+                    return await Task.WhenAll(luminanceTasks);
+                });
 
-        var luminanceValues = await Task.WhenAll(tasks);
 
         luminanceValues = luminanceValues.Where(value => value > 0).ToArray();
 
-        if (luminanceValues.Length == 0)
+        var averageLuminance = luminanceValues.Average();
+
+        await AnsiConsole.Progress().StartAsync(async ctx =>
         {
-            throw new MessageOnlyException("[red]No valid images found to calculate average luminance.[/]");
-        }
+            var task = ctx.AddTask("[yellow]Normalizing luminance and saving to disk...[/]", maxValue: files.Length);
+            var normalizationTasks = files.Select(async file =>
+            {
+                await Task.Run(() =>
+                {
+                    NormalizeImageLuminance(file, outputDirectory, averageLuminance);
+                    return true;
+                });
+                task.Increment(1);
+            }).ToArray();
 
-        AnsiConsole.Console.WriteLine(
-            $"Calculating average luminance of all images... n={luminanceValues.Length} images");
+            await Task.WhenAll(normalizationTasks);
+        });
 
-        // calculate the average luminance of all images
-        double averageLuminance = luminanceValues.Average();
 
-        AnsiConsole.MarkupLineInterpolated(
-            $"Average luminance of all images in {inputDirectory} is [yellow]{averageLuminance}[/].");
     }
 
 
-    static double CalculateAverageImageLuminance(string imagePath)
+    private static double CalculateAverageImageLuminance(string imagePath)
     {
         try
         {
-            Mat image = CvInvoke.Imread(imagePath, ImreadModes.Color);
+            Mat image = CvInvoke.Imread(imagePath);
 
-
-            // Convert the image to HSV color space
             Mat hsvImage = new Mat();
             CvInvoke.CvtColor(image, hsvImage, ColorConversion.Bgr2Hsv);
 
-            // Split the HSV image into separate channels (Hue, Saturation, and Value)
             Mat[] hsvChannels = hsvImage.Split();
-            Mat valueChannel = hsvChannels[2]; // Value channel represents the brightness
+            Mat valueChannel = hsvChannels[2];
 
-            // Calculate the average luminance value
             MCvScalar meanValue = CvInvoke.Mean(valueChannel);
             return meanValue.V0;
         }
@@ -69,6 +88,58 @@ public class
             AnsiConsole.Console.WriteLine(
                 $"[red]Warning: Error processing image at {imagePath}: {ex.Message}. Skipping this image.[/]");
             return 0;
+        }
+    }
+
+    static bool NormalizeImageLuminance(string imagePath, string outputPath, double averageLuminance)
+    {
+        try
+        {
+            
+            Mat image = CvInvoke.Imread(imagePath);
+
+            // Convert the image to HSV color space
+            var hsvImage = new Mat();
+            CvInvoke.CvtColor(image, hsvImage, ColorConversion.Bgr2Hsv);
+
+            // Split the HSV image into separate channels (Hue, Saturation, and Value)
+            var hsvChannels = new VectorOfMat();
+            CvInvoke.Split(hsvImage, hsvChannels);
+            var valueChannel = hsvChannels[2]; // Value channel represents the brightness
+
+            // Calculate the current mean luminance of the image
+            var currentMeanValue = CvInvoke.Mean(valueChannel);
+            var currentLuminance = currentMeanValue.V0;
+
+            // Normalize the value channel based on the average luminance
+            var scaleFactor = averageLuminance / currentLuminance;
+            valueChannel *= scaleFactor;
+
+            // Merge the modified value channel back with the other HSV channels
+            hsvChannels = new VectorOfMat(hsvChannels[0], hsvChannels[1], valueChannel);
+            CvInvoke.Merge(hsvChannels, hsvImage);
+
+
+            // Convert back to BGR color space
+            var normalizedImage = new Mat();
+            CvInvoke.CvtColor(hsvImage, normalizedImage, ColorConversion.Hsv2Bgr);
+
+            // Save the normalized image to the output path with the same file name
+            var outputFilePath = Path.Combine(outputPath, Path.GetFileName(imagePath));
+            
+            AnsiConsole.Console.WriteLine($"[green]Normalized image saved to {outputFilePath}. Mean luminance adjusted from {currentLuminance} to {averageLuminance}[/] ");
+            
+            
+            CvInvoke.Imwrite(outputFilePath, normalizedImage);
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.Console.WriteLine(
+                $"[red]Warning: Error processing image at {imagePath}: {ex.Message}. Skipping this image.[/]");
+
+            return false;
         }
     }
 }
