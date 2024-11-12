@@ -20,6 +20,7 @@ public static class CommandOptions
     public const string EngineLabel = "--engine";
     
     public const string GpuCount = "--gpu-count";
+
     
     public const string GlobalAverageLabel = "--global-average";
     
@@ -36,7 +37,6 @@ public static class CommandOptions
     public const string HeadroomLabel = "--headroom";
     
     
-
 
     public static readonly CommandOption InputFileOption = new(InputLabel, new[]
     {
