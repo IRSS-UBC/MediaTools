@@ -9,8 +9,8 @@ public class ConvertCommand : LeafCommand<ConvertCommand.ConvertCommandArguments
         "converts all images from the input folder to another format"
     }, new[]
     {
-        CommandOptions.InputOption,
-        CommandOptions.OutputOption,
+        CommandOptions.InputFileOption,
+        CommandOptions.OutputDirOption,
         CommandOptions.OutputFormatOption,
         CommandOptions.InputFormatOption
     })

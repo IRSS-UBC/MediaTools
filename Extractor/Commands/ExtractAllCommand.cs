@@ -12,8 +12,8 @@ public class ExtractAllCommand : LeafCommand<ExtractAllCommand.ExtractAllArgumen
         },
         new[]
         {
-            CommandOptions.InputOption,
-            CommandOptions.OutputOption,
+            CommandOptions.InputFileOption,
+            CommandOptions.OutputDirOption,
             CommandOptions.MaskOutputOption,
             CommandOptions.OutputFormatOption,
             new CommandOption(CommandOptions.OutputFrameDropRatioLabel, new[]

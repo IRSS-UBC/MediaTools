@@ -54,4 +54,8 @@
     <data name="DropRatioRequirements" xml:space="preserve">
         <value>Drop ratio must be between 0 and 1</value>
     </data>
+    <data name="NormalizeLuminanceCommandHandler_NormalizeImageExposure_Headroom_must_be_between_0_and_1_" xml:space="preserve">
+        <value>Headroom must be between 0 and 1.</value>
+        <comment>Normalize Image Exposure Exception</comment>
+    </data>
 </root>

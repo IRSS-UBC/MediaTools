@@ -5,6 +5,7 @@ public static class CommandOptions
 {
     public const string InputLabel = "--input";
     public const string OutputLabel = "--output";
+    
     public const string MaskOutputLabel = "--mask-output";
     public const string InputFormatLabel = "--in-format";
     public const string OutputFormatLabel = "--format";
@@ -19,16 +20,37 @@ public static class CommandOptions
     public const string EngineLabel = "--engine";
     
     public const string GpuCount = "--gpu-count";
+    
+    public const string GlobalAverageLabel = "--global-average";
+    
+    public const string WindowSizeLabel = "--window-size";
+    
+    public const string MaxConcurrentTasksLabel = "--max-concurrent-tasks";
+    
+    public const string GammaLabel = "--gamma";
+    
+    public const string ClipLimitLabel = "--clip-limit";
+    
+    public const string KernelSizeLabel = "--kernel-size";
+    
+    public const string HeadroomLabel = "--headroom";
+    
+    
 
 
-    public static readonly CommandOption InputOption = new(InputLabel, new[]
+    public static readonly CommandOption InputFileOption = new(InputLabel, new[]
     {
         "Required. The input video file."
     });
-
-    public static readonly CommandOption OutputOption = new(OutputLabel, new[]
+    
+    public static readonly CommandOption InputDirOption = new(InputLabel, new[]
     {
-        "The output path. Default: Name of the input file with the relevant extension."
+        "Required. The input directory."
+    });
+
+    public static readonly CommandOption OutputDirOption = new(OutputLabel, new[]
+    {
+        "The output path. Default: Name of the input file or dir with an appended suffix."
     });
     
     public static readonly CommandOption MaskOutputOption = new (MaskOutputLabel, new[]
@@ -74,5 +96,40 @@ public static class CommandOptions
     public static readonly CommandOption ProcessorCountOption = new(GpuCount, new[]
     {
         "The number of GPUs to use. Default: 1"
+    });
+
+    public static CommandOption GlobalAverageOption = new(GlobalAverageLabel, new[]
+    {
+        "Whether or not to use the global average for normalization. Default: false"
+    });
+    
+    public static CommandOption WindowSizeOption = new(WindowSizeLabel, new[]
+    {
+        "The window size for the global average. Default: 10"
+    });
+    
+    public static CommandOption MaxConcurrentTasksOption = new(MaxConcurrentTasksLabel, new[]
+    {
+        "The maximum number of concurrent tasks. Default: Number of logical processors."
+    });
+    
+    public static CommandOption GammaOption = new(GammaLabel, new[]
+    {
+        "The gamma value for the normalization. Default: 0.5"
+    });
+    
+    public static CommandOption ClipLimitOption = new(ClipLimitLabel, new[]
+    {
+        "The clip limit for the normalization. Default: 10"
+    });
+    
+    public static CommandOption KernelSizeOption = new(KernelSizeLabel, new[]
+    {
+        "The kernel size for the normalization. Default: 8"
+    });
+    
+    public static CommandOption HeadroomOption = new(HeadroomLabel, new[]
+    {
+        "The percentage of headroom for the normalization. Default: 0.2. Range: 0-1, keep below 0.5 for most uses."
     });
 }
