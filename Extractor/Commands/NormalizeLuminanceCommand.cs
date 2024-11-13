@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using Extractor.enums;
 using Extractor.Handlers;
 using TreeBasedCli;
 
@@ -20,6 +21,7 @@ public class NormalizeLuminanceCommand : LeafCommand<NormalizeLuminanceCommand.N
             CommandOptions.GlobalAverageOption,
             CommandOptions.WindowSizeOption,
             CommandOptions.MaxConcurrentTasksOption
+            CommandOptions.ColorSpaceOption
         })
     {
     }
@@ -33,8 +35,8 @@ public class NormalizeLuminanceCommand : LeafCommand<NormalizeLuminanceCommand.N
         double Gamma,
         int ClipLimit,
         int KernelSize,
-        double Headroom
-    )
+        double Headroom,
+        ColorSpace colorSpace)
         : IParsedCommandArguments;
 
     public class Parser : ICommandArgumentParser<NormalizeLuminanceArguments>
@@ -76,7 +78,18 @@ public class NormalizeLuminanceCommand : LeafCommand<NormalizeLuminanceCommand.N
                               "0.2";
 
             var headroom = double.Parse(headroomVal, CultureInfo.InvariantCulture);
+            
+            var colorSpace = arguments.GetArgumentOrNull(CommandOptions.ColorSpaceLabel)?.ExpectedAsSingleValue() ??
+                            "lab";
 
+            
+            // convert color space to enum
+            var colorSpaceEnum = colorSpace switch
+            {
+                "lab" => ColorSpace.LAB,
+                "hsv" => ColorSpace.HsV,
+                _ => throw new ArgumentOutOfRangeException(nameof(colorSpace), colorSpace, null)
+            };
 
             var result = new NormalizeLuminanceArguments(
                 inputDir,
@@ -87,7 +100,8 @@ public class NormalizeLuminanceCommand : LeafCommand<NormalizeLuminanceCommand.N
                 gamma,
                 clipLimit,
                 kernelSize,
-                headroom
+                headroom,
+                colorSpaceEnum
             );
 
             return new SuccessfulParseResult<NormalizeLuminanceArguments>(result);

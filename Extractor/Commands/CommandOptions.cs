@@ -36,6 +36,8 @@ public static class CommandOptions
     
     public const string HeadroomLabel = "--headroom";
     
+    public const string ColorSpaceLabel = "--color-space";
+    
     
 
     public static readonly CommandOption InputFileOption = new(InputLabel, new[]
@@ -131,5 +133,10 @@ public static class CommandOptions
     public static CommandOption HeadroomOption = new(HeadroomLabel, new[]
     {
         "The percentage of headroom for the normalization. Default: 0.2. Range: 0-1, keep below 0.5 for most uses."
+    });
+    
+    public static CommandOption ColorSpaceOption = new(ColorSpaceLabel, new[]
+    {
+        "The color space to use during processing. Default: LAB. Options: LAB, HSV"
     });
 }

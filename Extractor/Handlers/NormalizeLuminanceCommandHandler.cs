@@ -3,6 +3,7 @@ using Emgu.CV.CvEnum;
 using Emgu.CV.Structure;
 using Emgu.CV.Util;
 using Extractor.Commands;
+using Extractor.enums;
 using Spectre.Console;
 using Spectre.Console.Advanced;
 using TreeBasedCli;
@@ -39,6 +40,10 @@ public class
 
         double headroom = arguments.Headroom;
 
+        ColorSpace colorSpace = arguments.colorSpace;
+        
+        bool useCIE = colorSpace == ColorSpace.LAB;
+
 
         Directory.CreateDirectory(outputDirectory);
 
@@ -54,7 +59,7 @@ public class
                 .StartAsync(async ctx =>
                 {
                     using var semaphore = new SemaphoreSlim(maxConcurrentTasks);
-                    var task = ctx.AddTask("[yellow]Extracting luminance values from images...[/]",
+                    var task = ctx.AddTask($"[yellow]Extracting luminance values from images in {colorSpace.ToString()} color space...[/]",
                         maxValue: files.Length);
 
                     var luminanceTasks = files.Select(async file =>
@@ -63,7 +68,7 @@ public class
                         try
                         {
                             var luminance = await Task.Run(() =>
-                                new ImageLuminanceRecord(file, CalculateAverageImageLuminance(file)));
+                                new ImageLuminanceRecord(file, CalculateAverageImageLuminance(file, useCIE)));
                             task.Increment(1);
                             return luminance;
                         }
@@ -116,7 +121,7 @@ public class
                 await Task.Run(() =>
                 {
                     NormalizeImageExposure(record.FilePath, outputDirectory,
-                        globalAverage ? averageLuminance : record.Luminance, gamma, clipLimit, kernel, headroom);
+                        globalAverage ? averageLuminance : record.Luminance, useCIE, gamma, clipLimit, kernel, headroom);
 
                     return true;
                 });
@@ -128,29 +133,41 @@ public class
     }
 
 
-    private static LuminanceValues CalculateAverageImageLuminance(string imagePath)
+    private static LuminanceValues CalculateAverageImageLuminance(string imagePath, bool useCie)
     {
         try
         {
             Mat image = CvInvoke.Imread(imagePath);
 
-            Mat hsvImage = new Mat();
-            CvInvoke.CvtColor(image, hsvImage, ColorConversion.Bgr2Hsv);
+            Mat luminanceChannel;
 
-            Mat[] hsvChannels = hsvImage.Split();
-            Mat valueChannel = hsvChannels[2];
+            if (useCie)
+            {
+                // Convert to CIE L*a*b* color space and get the L* channel
+                Mat labImage = new Mat();
+                CvInvoke.CvtColor(image, labImage, ColorConversion.Bgr2Lab);
+                Mat[] labChannels = labImage.Split();
+                luminanceChannel = labChannels[0]; // L* channel
 
-            // CvInvoke.Normalize(valueChannel, valueChannel, 0, 255, NormType.MinMax);
+                labImage.Dispose();
+            }
+            else
+            {
+                // Convert to HSV color space and get the Value (V) channel
+                Mat hsvImage = new Mat();
+                CvInvoke.CvtColor(image, hsvImage, ColorConversion.Bgr2Hsv);
+                Mat[] hsvChannels = hsvImage.Split();
+                luminanceChannel = hsvChannels[2]; // V channel
 
+                hsvImage.Dispose();
+            }
 
-            var value = GetCurrentLuminance(valueChannel);
-
+            var luminance = GetCurrentLuminance(luminanceChannel);
 
             image.Dispose();
-            hsvImage.Dispose();
-            valueChannel.Dispose();
+            luminanceChannel.Dispose();
 
-            return value;
+            return luminance;
         }
         catch (Exception ex)
         {
@@ -161,103 +178,64 @@ public class
     }
 
 
-    static bool NormalizeImageExposure(string imagePath, string outputPath, LuminanceValues targetLuminance,
+    static bool NormalizeImageExposure(string imagePath, string outputPath, LuminanceValues targetLuminance, bool useCIE,
         double gamma = 0.5, double clipLimit = 10, int kernel = 8, double headroom = 0.2)
     {
         try
         {
             Mat image = CvInvoke.Imread(imagePath);
 
+            Mat luminanceChannel;
+            Mat colorSpaceImage = new Mat();
 
-            // Convert the image to HSV color space
-            var hsvImage = new Mat();
-            CvInvoke.CvtColor(image, hsvImage, ColorConversion.Bgr2Hsv);
-
-            // Split the HSV image into separate channels (Hue, Saturation, and Value)
-            var hsvChannels = new VectorOfMat();
-            CvInvoke.Split(hsvImage, hsvChannels);
-            var valueChannel = hsvChannels[2]; // Value channel represents brightness
-
-
-            // Apply Gamma Correction to boost dark areas
-            //double gamma = 0.5; // Lower values (<1) lighten dark areas, while values >1 darken
-
-
-            var workingImage = new Mat();
-
-
-            switch (headroom)
+            if (useCIE)
             {
-                // throw error if headroom is not between 0 and 1; throw a warning if it is not between 0 and 0.5
-                case < 0 or > 1:
-                    throw new ArgumentOutOfRangeException(nameof(headroom),
-                        Resources.Resources
-                            .NormalizeLuminanceCommandHandler_NormalizeImageExposure_Headroom_must_be_between_0_and_1_);
-                case > 0.5:
-                    AnsiConsole.Console.WriteLine(
-                        $"[yellow]Warning: Headroom value of {headroom} is greater than 0.5. This may result in increased clipping.[/]");
-                    break;
+                // Convert to CIE L*a*b* and get the L* channel
+                CvInvoke.CvtColor(image, colorSpaceImage, ColorConversion.Bgr2Lab);
+                Mat[] labChannels = colorSpaceImage.Split();
+                luminanceChannel = labChannels[0]; // L* channel
+            }
+            else
+            {
+                // Convert to HSV and get the V channel
+                CvInvoke.CvtColor(image, colorSpaceImage, ColorConversion.Bgr2Hsv);
+                Mat[] hsvChannels = colorSpaceImage.Split();
+                luminanceChannel = hsvChannels[2]; // V channel
             }
 
-            double alpha = 256 - (int)Math.Round(256 * headroom); // alpha for converting to 16-bit with headroom
-
-
-            valueChannel.ConvertTo(workingImage, DepthType.Cv16U, alpha);
-
-            valueChannel = workingImage;
-
-
-            valueChannel = ApplyGammaCorrection(valueChannel, gamma, DepthType.Cv16U);
-
-
-            // Apply CLAHE to the Value channel
-
+            // Apply gamma correction, CLAHE, and normalization
+            luminanceChannel = ApplyGammaCorrection(luminanceChannel, gamma, DepthType.Cv16U);
             System.Drawing.Size tileGridSize = new System.Drawing.Size(kernel, kernel);
-            CvInvoke.CLAHE(valueChannel, clipLimit, tileGridSize, valueChannel);
+            CvInvoke.CLAHE(luminanceChannel, clipLimit, tileGridSize, luminanceChannel);
 
-
-            // Calculate current luminance statistics (min, max, mean) of the value channel
-            var currentLuminance = GetCurrentLuminance(valueChannel);
-
-
-            // Calculate the scaling factor for the value channel
-
-
-            valueChannel.ConvertTo(valueChannel, DepthType.Cv32F);
-
-
-            valueChannel -= currentLuminance.Mean;
-
-
-            const double epsilon = 1e-6; // Small value to prevent division by zero
+            var currentLuminance = GetCurrentLuminance(luminanceChannel);
+            luminanceChannel.ConvertTo(luminanceChannel, DepthType.Cv32F);
+            luminanceChannel -= currentLuminance.Mean;
+            const double epsilon = 1e-6;
             var scale = targetLuminance.StdDev / (currentLuminance.StdDev + epsilon);
+            luminanceChannel *= scale;
+            luminanceChannel += targetLuminance.Max;
+            CvInvoke.Normalize(luminanceChannel, luminanceChannel, 0, 255, NormType.MinMax);
+            luminanceChannel.ConvertTo(luminanceChannel, DepthType.Cv8U);
 
+            // Merge back the channels and convert back to BGR
+            if (useCIE)
+            {
+                CvInvoke.Merge(
+                    new VectorOfMat(luminanceChannel, colorSpaceImage.Split()[1], colorSpaceImage.Split()[2]),
+                    colorSpaceImage);
+                CvInvoke.CvtColor(colorSpaceImage, image, ColorConversion.Lab2Bgr);
+            }
+            else
+            {
+                CvInvoke.Merge(
+                    new VectorOfMat(colorSpaceImage.Split()[0], colorSpaceImage.Split()[1], luminanceChannel),
+                    colorSpaceImage);
+                CvInvoke.CvtColor(colorSpaceImage, image, ColorConversion.Hsv2Bgr);
+            }
 
-            valueChannel *= scale;
-
-            valueChannel += targetLuminance.Max;
-
-
-            // normalize the value channel to 0-255
-            CvInvoke.Normalize(valueChannel, valueChannel, 0, 255, NormType.MinMax);
-
-
-            valueChannel.ConvertTo(valueChannel, DepthType.Cv8U);
-
-
-            // Merge the modified value channel back with the other HSV channels
-            hsvChannels = new VectorOfMat(hsvChannels[0], hsvChannels[1], valueChannel);
-            CvInvoke.Merge(hsvChannels, hsvImage);
-
-            // Convert back to BGR color space
-            var normalizedImage = new Mat();
-            CvInvoke.CvtColor(hsvImage, normalizedImage, ColorConversion.Hsv2Bgr);
-
-
-            // Save the normalized image to the output path with the same file name
             var outputFilePath = Path.Combine(outputPath, Path.GetFileName(imagePath));
-            CvInvoke.Imwrite(outputFilePath, normalizedImage);
-
+            CvInvoke.Imwrite(outputFilePath, image);
 
             return true;
         }
@@ -268,6 +246,7 @@ public class
             return false;
         }
     }
+
 
     private static LuminanceValues GetCurrentLuminance(Mat valueChannel)
     {
