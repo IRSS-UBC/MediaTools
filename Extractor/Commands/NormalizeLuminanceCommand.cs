@@ -20,7 +20,11 @@ public class NormalizeLuminanceCommand : LeafCommand<NormalizeLuminanceCommand.N
             CommandOptions.OutputDirOption,
             CommandOptions.GlobalAverageOption,
             CommandOptions.WindowSizeOption,
-            CommandOptions.MaxConcurrentTasksOption
+            CommandOptions.MaxConcurrentTasksOption,
+            CommandOptions.GammaOption,
+            CommandOptions.ClipLimitOption,
+            CommandOptions.KernelSizeOption,
+            CommandOptions.HeadroomOption,
             CommandOptions.ColorSpaceOption
         })
     {
