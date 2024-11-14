@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.Diagnostics;
+using System.Text;
 using Extractor.Commands;
 using Extractor.Extensions;
 using Extractor.Patches;
@@ -27,7 +28,11 @@ public static class Program
         try
         {
             SetFFmpegPath();
-            await HandleArguments(args);
+            
+            var enableTiming = args.Contains("--time");
+            var filteredArgs = args.Where(arg => arg != "--time").ToArray();
+            
+            await HandleArguments(filteredArgs, enableTiming);
         }
         catch (MessageOnlyException ex)
         {
@@ -48,12 +53,24 @@ public static class Program
         FFmpegLoader.FFmpegPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "FFmpeg");
     }
 
-    private static async Task HandleArguments(string[] args)
+    private static async Task HandleArguments(IReadOnlyCollection<string> args, bool enableTiming)
     {
         var settings = CreateArgumentHandlerSettings();
-
         var argumentHandler = new ArgumentHandler(settings);
+        
+        Stopwatch? stopwatch = null;
+        if (enableTiming)
+        {
+            stopwatch = Stopwatch.StartNew();
+        }
+        
         await argumentHandler.HandleAsync(args);
+        
+        if (enableTiming && stopwatch != null)
+        {
+            stopwatch.Stop();
+            AnsiConsole.MarkupLine($"[green]Execution Time: {stopwatch.Elapsed}[/]");
+        }
     }
 
     private static ArgumentHandlerSettings CreateArgumentHandlerSettings()
