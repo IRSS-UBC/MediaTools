@@ -2,6 +2,7 @@
 using Emgu.CV.CvEnum;
 using Emgu.CV.Structure;
 using Emgu.CV.Util;
+using Extractor.Algorithms;
 using Extractor.Commands;
 using Extractor.enums;
 using Spectre.Console;
@@ -41,8 +42,10 @@ public class
         double headroom = arguments.Headroom;
 
         ColorSpace colorSpace = arguments.colorSpace;
-        
+
         bool useCIE = colorSpace == ColorSpace.LAB;
+
+        bool optimalGamma = arguments.optimalGammaCorrection;
 
 
         Directory.CreateDirectory(outputDirectory);
@@ -59,7 +62,8 @@ public class
                 .StartAsync(async ctx =>
                 {
                     using var semaphore = new SemaphoreSlim(maxConcurrentTasks);
-                    var task = ctx.AddTask($"[yellow]Extracting luminance values from images in {colorSpace.ToString()} color space...[/]",
+                    var task = ctx.AddTask(
+                        $"[yellow]Extracting luminance values from images in {colorSpace.ToString()} color space...[/]",
                         maxValue: files.Length);
 
                     var luminanceTasks = files.Select(async file =>
@@ -121,7 +125,9 @@ public class
                 await Task.Run(() =>
                 {
                     NormalizeImageExposure(record.FilePath, outputDirectory,
-                        globalAverage ? averageLuminance : record.Luminance, useCIE, gamma, clipLimit, kernel, headroom);
+                        globalAverage ? averageLuminance : record.Luminance, useCIE, optimalGamma, gamma, clipLimit,
+                        kernel,
+                        headroom);
 
                     return true;
                 });
@@ -178,8 +184,9 @@ public class
     }
 
 
-    static bool NormalizeImageExposure(string imagePath, string outputPath, LuminanceValues targetLuminance, bool useCIE,
-        double gamma = 0.5, double clipLimit = 10, int kernel = 8, double headroom = 0.2)
+    private static bool NormalizeImageExposure(string imagePath, string outputPath, LuminanceValues targetLuminance,
+        bool useLab, bool useOptimalGamma, double gamma = 0.5, double clipLimit = 10, int kernel = 8,
+        double headroom = 0.2)
     {
         try
         {
@@ -188,7 +195,7 @@ public class
             Mat luminanceChannel;
             Mat colorSpaceImage = new Mat();
 
-            if (useCIE)
+            if (useLab)
             {
                 // Convert to CIE L*a*b* and get the L* channel
                 CvInvoke.CvtColor(image, colorSpaceImage, ColorConversion.Bgr2Lab);
@@ -204,22 +211,28 @@ public class
             }
 
             // Apply gamma correction, CLAHE, and normalization
-            luminanceChannel = ApplyGammaCorrection(luminanceChannel, gamma, DepthType.Cv16U);
-            System.Drawing.Size tileGridSize = new System.Drawing.Size(kernel, kernel);
+            luminanceChannel = useOptimalGamma
+                ? OptimalGammaCorrection.ApplyCorrection(luminanceChannel, DepthType.Cv16U)
+                : ApplyGammaCorrection(luminanceChannel, gamma, DepthType.Cv16U);
+
+
+            var tileGridSize = new System.Drawing.Size(kernel, kernel);
             CvInvoke.CLAHE(luminanceChannel, clipLimit, tileGridSize, luminanceChannel);
 
             var currentLuminance = GetCurrentLuminance(luminanceChannel);
             luminanceChannel.ConvertTo(luminanceChannel, DepthType.Cv32F);
             luminanceChannel -= currentLuminance.Mean;
             const double epsilon = 1e-6;
+
             var scale = targetLuminance.StdDev / (currentLuminance.StdDev + epsilon);
             luminanceChannel *= scale;
             luminanceChannel += targetLuminance.Max;
+
             CvInvoke.Normalize(luminanceChannel, luminanceChannel, 0, 255, NormType.MinMax);
             luminanceChannel.ConvertTo(luminanceChannel, DepthType.Cv8U);
 
             // Merge back the channels and convert back to BGR
-            if (useCIE)
+            if (useLab)
             {
                 CvInvoke.Merge(
                     new VectorOfMat(luminanceChannel, colorSpaceImage.Split()[1], colorSpaceImage.Split()[2]),

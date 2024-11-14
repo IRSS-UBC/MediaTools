@@ -25,7 +25,8 @@ public class NormalizeLuminanceCommand : LeafCommand<NormalizeLuminanceCommand.N
             CommandOptions.ClipLimitOption,
             CommandOptions.KernelSizeOption,
             CommandOptions.HeadroomOption,
-            CommandOptions.ColorSpaceOption
+            CommandOptions.ColorSpaceOption,
+            CommandOptions.OptimalGammaCorrectionOption
         })
     {
     }
@@ -40,7 +41,8 @@ public class NormalizeLuminanceCommand : LeafCommand<NormalizeLuminanceCommand.N
         int ClipLimit,
         int KernelSize,
         double Headroom,
-        ColorSpace colorSpace)
+        ColorSpace colorSpace,
+        bool optimalGammaCorrection)
         : IParsedCommandArguments;
 
     public class Parser : ICommandArgumentParser<NormalizeLuminanceArguments>
@@ -69,9 +71,9 @@ public class NormalizeLuminanceCommand : LeafCommand<NormalizeLuminanceCommand.N
                 arguments.GetArgumentOrNull(CommandOptions.MaxConcurrentTasksLabel)?.ExpectedAsSingleInteger() ??
                 Environment.ProcessorCount;
 
-            var gammaVal = arguments.GetArgumentOrNull(CommandOptions.GammaLabel)?.ExpectedAsSingleValue() ?? "0.5";
+            var gammaVal = arguments.GetArgumentOrNull(CommandOptions.GammaLabel)?.ExpectedAsSingleValue();
 
-            var gamma = double.Parse(gammaVal, CultureInfo.InvariantCulture);
+            var gamma = gammaVal != null ? double.Parse(gammaVal, CultureInfo.InvariantCulture) : 0.5;
 
             var clipLimit = arguments.GetArgumentOrNull(CommandOptions.ClipLimitLabel)?.ExpectedAsSingleInteger() ?? 10;
 
@@ -82,13 +84,31 @@ public class NormalizeLuminanceCommand : LeafCommand<NormalizeLuminanceCommand.N
                               "0.2";
 
             var headroom = double.Parse(headroomVal, CultureInfo.InvariantCulture);
-            
-            var colorSpace = arguments.GetArgumentOrNull(CommandOptions.ColorSpaceLabel)?.ExpectedAsSingleValue() ??
-                            "lab";
 
-            
+            var colorSpace = arguments.GetArgumentOrNull(CommandOptions.ColorSpaceLabel)?.ExpectedAsSingleValue() ??
+                             "lab";
+
+            var optimalGammaCorrectionVal = arguments.GetArgumentOrNull(CommandOptions.OptimalGammaCorrectionLabel)
+                                                ?.ExpectedAsSingleValue() ??
+                                            "false";
+
+            if (!bool.TryParse(optimalGammaCorrectionVal, out var optimalGammaCorrection))
+            {
+                return new FailedParseResult<NormalizeLuminanceArguments>(
+                    $"Invalid value for {CommandOptions.OptimalGammaCorrectionLabel}. Must be a boolean."
+                );
+            }
+
+            if (optimalGammaCorrection && gammaVal != null)
+            {
+                return new FailedParseResult<NormalizeLuminanceArguments>(
+                    $"Cannot specify both {CommandOptions.GammaLabel} and {CommandOptions.OptimalGammaCorrectionLabel}."
+                );
+            }
+
+
             // convert color space to enum
-            var colorSpaceEnum = colorSpace switch
+            var colorSpaceEnum = colorSpace.ToLowerInvariant() switch
             {
                 "lab" => ColorSpace.LAB,
                 "hsv" => ColorSpace.HsV,
@@ -105,7 +125,8 @@ public class NormalizeLuminanceCommand : LeafCommand<NormalizeLuminanceCommand.N
                 clipLimit,
                 kernelSize,
                 headroom,
-                colorSpaceEnum
+                colorSpaceEnum,
+                optimalGammaCorrection
             );
 
             return new SuccessfulParseResult<NormalizeLuminanceArguments>(result);
