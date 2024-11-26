@@ -16,8 +16,8 @@ public class MaskSkyCommand : LeafCommand<MaskSkyCommand.MaskSkyArguments, MaskS
         },
         new[]
         {
-            CommandOptions.InputOption,
-            CommandOptions.OutputOption,
+            CommandOptions.InputFileOption,
+            CommandOptions.OutputDirOption,
             CommandOptions.EngineOption,
             CommandOptions.ProcessorCountOption
         })

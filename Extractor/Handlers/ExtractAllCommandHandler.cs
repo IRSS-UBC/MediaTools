@@ -111,6 +111,9 @@ public class ExtractAllCommandHandler : ILeafCommandHandler<ExtractAllCommand.Ex
 
         var actualFrameCount = file.Video.Info.NumberOfFrames ?? 0;
         var finalFrameCount = MathF.Round(actualFrameCount * (1 - extractAllArguments.DropRatio));
+        
+        
+        
         progress.Complete();
 
         return (int)finalFrameCount;

@@ -123,6 +123,16 @@ namespace Extractor.Resources {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Headroom must be between 0 and 1..
+        /// </summary>
+        internal static string NormalizeLuminanceCommandHandler_NormalizeImageExposure_Headroom_must_be_between_0_and_1_ {
+            get {
+                return ResourceManager.GetString("NormalizeLuminanceCommandHandler_NormalizeImageExposure_Headroom_must_be_between_" +
+                        "0_and_1_", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Processing frame {0} of {1}. {2:0} seconds elapsed of estimated {3:0} seconds. {4:0} seconds remaining..
         /// </summary>
         internal static string ProcessingFrame {

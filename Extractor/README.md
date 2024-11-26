@@ -17,6 +17,12 @@ IRSS Media Tools uses third-party libraries that are subject to their own licens
 
 Please review the license files included with this software for comprehensive information.
 
+## Citations
+
+This tool implements the following algorithms:
+- [1] [SCIE] Inho Jeong and Chul Lee, “An optimization-based approach to gamma correction parameter estimation for low-light image enhancement,” Multimedia Tools and Applications, vol. 80, no. 12, pp. 18027–18042, May 2021.
+
+
 ## Installation
 
 1. Download the latest version of IRSS Media Tools from the official repository (not yet public).

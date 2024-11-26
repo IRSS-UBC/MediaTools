@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.Diagnostics;
+using System.Text;
 using Extractor.Commands;
 using Extractor.Extensions;
 using Extractor.Patches;
@@ -7,6 +8,7 @@ using HarmonyLib;
 using Spectre.Console;
 using TreeBasedCli;
 using TreeBasedCli.Exceptions;
+
 namespace Extractor;
 
 public static class Program
@@ -26,7 +28,11 @@ public static class Program
         try
         {
             SetFFmpegPath();
-            await HandleArguments(args);
+            
+            var enableTiming = args.Contains("--time");
+            var filteredArgs = args.Where(arg => arg != "--time").ToArray();
+            
+            await HandleArguments(filteredArgs, enableTiming);
         }
         catch (MessageOnlyException ex)
         {
@@ -47,12 +53,24 @@ public static class Program
         FFmpegLoader.FFmpegPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "FFmpeg");
     }
 
-    private static async Task HandleArguments(string[] args)
+    private static async Task HandleArguments(IReadOnlyCollection<string> args, bool enableTiming)
     {
         var settings = CreateArgumentHandlerSettings();
-
         var argumentHandler = new ArgumentHandler(settings);
+        
+        Stopwatch? stopwatch = null;
+        if (enableTiming)
+        {
+            stopwatch = Stopwatch.StartNew();
+        }
+        
         await argumentHandler.HandleAsync(args);
+        
+        if (enableTiming && stopwatch != null)
+        {
+            stopwatch.Stop();
+            AnsiConsole.MarkupLine($"[green]Execution Time: {stopwatch.Elapsed}[/]");
+        }
     }
 
     private static ArgumentHandlerSettings CreateArgumentHandlerSettings()
@@ -79,8 +97,8 @@ public static class Program
     private static bool AreStandardStreamsAvailable()
     {
         return Console.OpenStandardInput(1) != Stream.Null &&
-            Console.OpenStandardOutput(1) != Stream.Null &&
-            Console.OpenStandardError(1) != Stream.Null;
+               Console.OpenStandardOutput(1) != Stream.Null &&
+               Console.OpenStandardError(1) != Stream.Null;
     }
 
     private static bool IsConsoleHandleAvailable()
@@ -179,13 +197,15 @@ public static class Program
         return new BranchCommandBuilder("")
             .WithDesription(new[]
             {
-                "IRSS Media Tools is a command-line tool for extracting, converting, and working with media files.", "Unless otherwise stated, all commands will use the current working directory as the input/output folder."
+                "IRSS Media Tools is a command-line tool for extracting, converting, and working with media files.",
+                "Unless otherwise stated, all commands will use the current working directory as the input/output folder."
             })
             .WithChildCommand(new ExtractAllCommand())
             .WithChildCommand(new ListInformationCommand())
             .WithChildCommand(new ConvertCommand())
             .WithChildCommand(new AnimateCommand())
             .WithChildCommand(new MaskSkyCommand())
+            .WithChildCommand(new NormalizeLuminanceCommand())
             .Build();
     }
 
