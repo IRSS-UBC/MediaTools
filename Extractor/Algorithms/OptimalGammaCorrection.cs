@@ -1,147 +1,160 @@
-﻿// Implementation of the paper [SCIE] Inho Jeong and Chul Lee, “An optimization-based approach to gamma correction parameter estimation for low-light image enhancement,” Multimedia Tools and Applications, vol. 80, no. 12, pp. 18027–18042, May 2021.
-// Derived from: https://github.com/gitofinho/Optimal-Gamma-Correction-Parameter-Estimation/tree/master
-
-using Emgu.CV;
+﻿using Emgu.CV;
 using Emgu.CV.CvEnum;
+using Emgu.CV.Structure;
+using Emgu.CV.Util;
+using Extractor.Structs;
 
 namespace Extractor.Algorithms;
 
-public class OptimalGammaCorrection
+class OGGCPEAlgorithm
 {
-    public static Mat ApplyCorrection(Mat src, DepthType depthType = DepthType.Cv8U)
+    private const double Ta = 0.95;
+    private const double SigmaW = 2.25;
+
+    public static Mat DoGConvolution(Mat src)
     {
-        Mat srcFloat = new Mat();
-        Mat dst = new Mat();
-        switch (depthType)
-        {
-            // Convert source image to a 32-bit float and normalize based on depth type
-            case DepthType.Cv8U:
-                src.ConvertTo(srcFloat, DepthType.Cv32F, 1.0 / 255.0); // Normalize 8-bit to [0, 1]
-                break;
-            case DepthType.Cv16U:
-                src.ConvertTo(srcFloat, DepthType.Cv32F, 1.0 / 65535.0); // Normalize 16-bit to [0, 1]
-                break;
-            case DepthType.Cv32F:
-                // If the image is already 32F, no scaling needed, just copy to srcFloat
-                srcFloat = src.Clone();
-                break;
-            default:
-                throw new ArgumentException("Unsupported depth type for gamma correction.");
-        }
-
-
-        const double sigmaW = 2.25;
-
-
-        var luminanceFloat = srcFloat;
-
-        // Step 1: Calculate log-scaled luminance and separate into bright and dark sets
-        Mat lLog = new Mat();
-        CvInvoke.Log(luminanceFloat + 1, lLog); // Prevent log(0) issues
-        CvInvoke.Normalize(lLog, lLog, 0, 1, NormType.MinMax);
-
-        Mat brightSet = new(), darkSet = new();
-        CvInvoke.Threshold(lLog, brightSet, 0.5, 1.0, ThresholdType.Binary);
-        CvInvoke.Threshold(lLog, darkSet, 0.5, 1.0, ThresholdType.BinaryInv);
-
-        // Step 2: Calculate gamma values for bright and dark sets
-        var gammaLow = CalculateGamma(darkSet); // Adaptive gamma function
-        var gammaHigh = CalculateGamma(brightSet);
-
-        Mat luminanceDark = new(), luminanceBright = new();
-        CvInvoke.Pow(lLog, gammaLow, luminanceDark);
-        CvInvoke.Pow(lLog, gammaHigh, luminanceBright);
-
-        // Step 3: DoG Convolution on dark and bright luminance maps
-        var doGDark = DoGConvolution(luminanceDark);
-        var doGBright = DoGConvolution(luminanceBright);
-
-        // Step 4: Weighting function and output luminance
-        var w = new Mat();
-        CvInvoke.Pow(luminanceBright, 3.0, w);
-        CvInvoke.Exp(w * sigmaW, w);
-
-        var outputLuminance = new Mat();
-        CvInvoke.AddWeighted(doGDark, 1.0, doGBright, 1.0, 0, outputLuminance);
-
-        // Step 5: Reassemble image with adjusted luminance
-        var result = new Mat();
-        src.ConvertTo(result, DepthType.Cv32F, 1.0 / 255.0); // Ensure input is float type and normalized
-        for (var i = 0; i < 3; i++)
-        {
-            var channel = new Mat();
-            CvInvoke.ExtractChannel(result, channel, i);
-            CvInvoke.Multiply(channel, outputLuminance, channel);
-            CvInvoke.InsertChannel(channel, result, i);
-        }
-
-        result *= 255;
-        result.ConvertTo(result, depthType); // Convert back to original depth type
-
-        switch (depthType)
-        {
-            // Convert back to the original depth type and scale accordingly
-            case DepthType.Cv8U:
-                result.ConvertTo(dst, DepthType.Cv8U, 255.0); // Scale back to [0, 255] for 8-bit
-                break;
-            case DepthType.Cv16U:
-                result.ConvertTo(dst, DepthType.Cv16U, 65535.0); // Scale back to [0, 65535] for 16-bit
-                break;
-            case DepthType.Cv32F:
-                dst = result.Clone(); // No scaling needed for 32F; just copy the result
-                break;
-            default:
-                throw new ArgumentException("Unsupported depth type for gamma correction.");
-        }
-
-        return dst;
-    }
-
-
-    // Perform Difference of Gaussians (DoG) Convolution
-    private static Mat DoGConvolution(IInputArray src)
-    {
-        Mat g1 = new(), g2 = new(), result = new();
+        Mat g1 = new Mat(), g2 = new Mat(), result = new Mat();
         CvInvoke.GaussianBlur(src, g1, new System.Drawing.Size(3, 3), 0.5);
         CvInvoke.GaussianBlur(src, g2, new System.Drawing.Size(3, 3), 1.5);
         CvInvoke.Subtract(g1, g2, result);
-        CvInvoke.Add(src, result, result);
+        CvInvoke.Add(src, result, result); // Add result back to src
+        return result;
+    }
+
+    public static double CalculateMean(Mat input)
+    {
+        MCvScalar mean = CvInvoke.Mean(input);
+        return mean.V0;
+    }
+
+
+
+    public static double AmbArgmin(Mat input, Mat recursive, double targetValue, double r)
+    {
+        const double tolerance = 1e-7;
+        double optimalR = r;
+
+        while (true)
+        {
+            Mat dst = new Mat();
+            CvInvoke.Pow(input, optimalR, dst);
+            double up = CalculateMean(dst) - targetValue;
+
+            Mat logRecursive = new Mat();
+            CvInvoke.Log(recursive, logRecursive);
+            Mat weightedDst = new Mat();
+            CvInvoke.Multiply(dst, logRecursive, weightedDst);
+
+            double down = CalculateMean(weightedDst);
+            double newR = optimalR - (up / down);
+
+            if (Math.Abs(optimalR - newR) < tolerance)
+                return newR;
+
+            optimalR = newR;
+        }
+    }
+
+    public static Mat Apply(Mat src)
+    {
+        Mat[] channels = src.Split();
+        Mat lIn = new Mat();
+        CvInvoke.AddWeighted(channels[2], 0.299, channels[1], 0.587, 0, lIn);
+        CvInvoke.AddWeighted(lIn, 1, channels[0], 0.114, 0, lIn);
+
+        double min = new double(), max = new double();
+
+        System.Drawing.Point minLoc = new(), maxLoc = new();
+
+        CvInvoke.MinMaxLoc(lIn, ref min, ref max, ref minLoc, ref maxLoc);
+
+        // Convert lIn to floating-point type (CV_64F for higher precision)
+        Mat lInFloat = new Mat();
+        lIn.ConvertTo(lInFloat, DepthType.Cv64F);  // Convert lIn to CV_64F
+
+// Create a matrix filled with 1.0 to add to lInFloat
+        Mat ones = new Mat(lInFloat.Size, lInFloat.Depth, lInFloat.NumberOfChannels);
+        ones.SetTo(new MCvScalar(1.0));
+
+// Add the "ones" matrix to avoid log(0)
+        CvInvoke.Add(lInFloat, ones, lInFloat);
+
+// Apply the logarithm
+        Mat lLog = new Mat();
+        CvInvoke.Log(lInFloat, lLog);  // Apply log to lInFloat
+
+        
+        Mat maxLogMat = new Mat(lLog.Size, DepthType.Cv64F, 1);
+        maxLogMat.SetTo(new MCvScalar(Math.Log(max + 1)));
+        CvInvoke.Divide(lLog, maxLogMat, lLog);
+
+        Mat brightSet = lLog.Clone();
+        Mat darkSet = new Mat();
+        CvInvoke.Threshold(lLog, brightSet, 0.5, 1.0, ThresholdType.ToZero);
+        CvInvoke.Threshold(lLog, darkSet, 0.5, 1.0, ThresholdType.ToZeroInv);
+
+
+
+
+        var darkset_lum = LuminanceValues.GetCurrentLuminance(darkSet);
+
+        var brightset_lum = LuminanceValues.GetCurrentLuminance(brightSet);
+
+
+// Extract standard deviation values for use in gamma calculations
+        double gammaLow = AmbArgmin(darkSet, darkSet, darkset_lum.StdDev, 1.0);
+        double gammaHigh = AmbArgmin(brightSet, brightSet, brightset_lum.StdDev, 1.0);
+
+
+        Mat lDark = new Mat(), lBright = new Mat();
+        CvInvoke.Pow(lLog, gammaLow, lDark);
+        CvInvoke.Pow(lLog, gammaHigh, lBright);
+
+        Mat commaDark = DoGConvolution(lDark);
+        Mat commaBright = DoGConvolution(lBright);
+
+        Mat w = new Mat();
+        CvInvoke.Pow(lBright, 3.0, w);
+        CvInvoke.Exp(w * SigmaW, w);
+
+        Mat lOut = new Mat();
+        CvInvoke.AddWeighted(commaDark, 1, commaBright, -1, 0, lOut);
+        CvInvoke.Multiply(w, lOut, lOut);
+        CvInvoke.Add(commaBright, lOut, lOut);
+
+        Mat s = new Mat();
+        s = TanhApprox(lBright * -1);
+        Mat scalarMat = new Mat(s.Size, s.Depth, s.NumberOfChannels);
+        scalarMat.SetTo(new MCvScalar(Ta)); // Fill scalarMat with the value of t_a
+        CvInvoke.Add(s, scalarMat, s); // Add scalarMat to s
+
+        Mat[] iC = [lIn.Clone(), lIn.Clone(), lIn.Clone()];
+        using var vectorOfMat = new VectorOfMat(iC);
+        var result = new Mat();
+        CvInvoke.Merge(vectorOfMat, result); // Merge the channels into a single Mat
+
+        // Multiply with 's'
+        CvInvoke.Multiply(result, s, result);
+
+        // Scale and convert the result
+        result *= 255;
+        result.ConvertTo(result, DepthType.Cv8U);
+
         return result;
     }
 
 
-    // Calculate adaptive gamma based on the amb_argmin method
-    private static double CalculateGamma(IInputArray input, IInputArray recursive, double targetValue, double r, double tolerance = 1e-7)
+    public static Mat TanhApprox(Mat input)
     {
-        while (true)
-        {
-            // Step 1: Calculate the powered input (input ^ r) and mean of powered values
-            var poweredInput = new Mat();
-            CvInvoke.Pow(input, r, poweredInput);
-            var up = CvInvoke.Mean(poweredInput).V0 - targetValue;
+        Mat exp2x = new Mat();
+        CvInvoke.Exp(input * 2, exp2x); // Calculate exp(2 * x) for each element in the matrix
 
-            // Step 2: Calculate logarithmic mean
-            var logInput = new Mat();
-            CvInvoke.Log(recursive, logInput);
-            var adjustedInput = new Mat();
-            CvInvoke.Multiply(poweredInput, logInput, adjustedInput);
-            var down = CvInvoke.Mean(adjustedInput).V0;
+        Mat numerator = exp2x - 1; // Calculate exp(2 * x) - 1
+        Mat denominator = exp2x + 1; // Calculate exp(2 * x) + 1
 
-            // Step 3: Compute the optimal new r value
-            var optimalR = r - (up / (down + 1e-6)); // Small epsilon to avoid division by zero
+        Mat result = new Mat();
+        CvInvoke.Divide(numerator, denominator, result); // Compute (exp(2 * x) - 1) / (exp(2 * x) + 1)
 
-            // Step 4: Recursive condition based on tolerance
-            if (Math.Abs(r - optimalR) < tolerance)
-                return optimalR;
-            r = optimalR;
-        }
-    }
-
-    // Calculate gamma with default recursive call parameters
-    private static double CalculateGamma(Mat luminanceSet, double initialR = 1.0)
-    {
-        var recursiveLuminance = luminanceSet.Clone(); // Make a copy for recursive calculation
-        var meanValue = CvInvoke.Mean(luminanceSet).V0; // Target mean value
-        return CalculateGamma(luminanceSet, recursiveLuminance, meanValue, initialR);
+        return result;
     }
 }

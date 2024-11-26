@@ -5,6 +5,8 @@ using Emgu.CV.Util;
 using Extractor.Algorithms;
 using Extractor.Commands;
 using Extractor.enums;
+using Extractor.Extensions;
+using Extractor.Structs;
 using Spectre.Console;
 using Spectre.Console.Advanced;
 using TreeBasedCli;
@@ -14,6 +16,8 @@ namespace Extractor.Handlers;
 
 public class
     NormalizeLuminanceCommandHandler : ILeafCommandHandler<NormalizeLuminanceCommand.NormalizeLuminanceArguments>
+
+
 {
     public async Task HandleAsync(NormalizeLuminanceCommand.NormalizeLuminanceArguments arguments,
         LeafCommand executedCommand)
@@ -29,7 +33,7 @@ public class
 
         if (!Directory.Exists(inputDirectory))
         {
-            AnsiConsole.Console.WriteAnsi($"[red]Error: Input directory {inputDirectory} does not exist.[/]");
+            AnsiConsole.Console.MarkupLine($"[red]Error: Input directory {inputDirectory} does not exist.[/]");
             return;
         }
 
@@ -43,7 +47,7 @@ public class
 
         ColorSpace colorSpace = arguments.colorSpace;
 
-        bool useCIE = colorSpace == ColorSpace.LAB;
+        bool useCie = colorSpace == ColorSpace.LAB;
 
         bool optimalGamma = arguments.optimalGammaCorrection;
 
@@ -72,7 +76,7 @@ public class
                         try
                         {
                             var luminance = await Task.Run(() =>
-                                new ImageLuminanceRecord(file, CalculateAverageImageLuminance(file, useCIE)));
+                                new ImageLuminanceRecord(file, CalculateAverageImageLuminance(file, useCie)));
                             task.Increment(1);
                             return luminance;
                         }
@@ -117,24 +121,50 @@ public class
         }
 
 
+        GC.Collect();
+
+
         await AnsiConsole.Progress().StartAsync(async ctx =>
         {
             var task = ctx.AddTask("[yellow]Normalizing luminance and saving to disk...[/]", maxValue: files.Length);
-            var normalizationTasks = luminanceValues.Select(async record =>
+
+            const int batchSize = 50;
+             // Adjust the degree of parallelism as needed
+
+            var tasks = new List<Task>();
+
+            // Create a SemaphoreSlim for managing concurrency
+            using var semaphore = new SemaphoreSlim(maxConcurrentTasks);
+
+            for (var i = 0; i < luminanceValues.Length; i += batchSize)
             {
-                await Task.Run(() =>
+                var batch = luminanceValues.Skip(i).Take(batchSize).ToList();
+
+                // Add the batch processing task
+                tasks.Add(Task.Run(async () =>
                 {
-                    NormalizeImageExposure(record.FilePath, outputDirectory,
-                        globalAverage ? averageLuminance : record.Luminance, useCIE, optimalGamma, gamma, clipLimit,
-                        kernel,
-                        headroom);
+                    foreach (var record in batch)
+                    {
+                        await semaphore.WaitAsync();
+                        try
+                        {
+                            await NormalizeImageExposure(record.FilePath, outputDirectory,
+                                globalAverage ? averageLuminance : record.Luminance, useCie, optimalGamma, gamma, clipLimit,
+                                kernel, headroom);
+                            task.Increment(1);
+                        }
+                        finally
+                        {
+                            semaphore.Release();
+                        }
+                    }
+                }));
+            }
 
-                    return true;
-                });
-                task.Increment(1);
-            }).ToArray();
+            // Wait for all tasks to complete
+            await Task.WhenAll(tasks);
 
-            await Task.WhenAll(normalizationTasks);
+            return Task.CompletedTask;
         });
     }
 
@@ -168,7 +198,7 @@ public class
                 hsvImage.Dispose();
             }
 
-            var luminance = GetCurrentLuminance(luminanceChannel);
+            var luminance = LuminanceValues.GetCurrentLuminance(luminanceChannel);
 
             image.Dispose();
             luminanceChannel.Dispose();
@@ -177,147 +207,108 @@ public class
         }
         catch (Exception ex)
         {
-            AnsiConsole.Console.WriteLine(
+            AnsiConsole.Console.WriteAnsi(
                 $"[red]Warning: Error processing image at {imagePath}: {ex.Message}. Skipping this image.[/]");
             return new LuminanceValues();
         }
     }
 
 
-    private static bool NormalizeImageExposure(string imagePath, string outputPath, LuminanceValues targetLuminance,
+    private static async Task<bool> NormalizeImageExposure(string imagePath, string outputPath, LuminanceValues targetLuminance,
         bool useLab, bool useOptimalGamma, double gamma = 0.5, double clipLimit = 10, int kernel = 8,
         double headroom = 0.2)
     {
-        try
+        Mat image = CvInvoke.Imread(imagePath);
+
+
+        if (useOptimalGamma)
         {
-            Mat image = CvInvoke.Imread(imagePath);
-
-            Mat luminanceChannel;
-            Mat colorSpaceImage = new Mat();
-
-            if (useLab)
-            {
-                // Convert to CIE L*a*b* and get the L* channel
-                CvInvoke.CvtColor(image, colorSpaceImage, ColorConversion.Bgr2Lab);
-                Mat[] labChannels = colorSpaceImage.Split();
-                luminanceChannel = labChannels[0]; // L* channel
-            }
-            else
-            {
-                // Convert to HSV and get the V channel
-                CvInvoke.CvtColor(image, colorSpaceImage, ColorConversion.Bgr2Hsv);
-                Mat[] hsvChannels = colorSpaceImage.Split();
-                luminanceChannel = hsvChannels[2]; // V channel
-            }
-
-            // Apply gamma correction, CLAHE, and normalization
-            luminanceChannel = useOptimalGamma
-                ? OptimalGammaCorrection.ApplyCorrection(luminanceChannel, DepthType.Cv16U)
-                : ApplyGammaCorrection(luminanceChannel, gamma, DepthType.Cv16U);
-
-
-            var tileGridSize = new System.Drawing.Size(kernel, kernel);
-            CvInvoke.CLAHE(luminanceChannel, clipLimit, tileGridSize, luminanceChannel);
-
-            var currentLuminance = GetCurrentLuminance(luminanceChannel);
-            luminanceChannel.ConvertTo(luminanceChannel, DepthType.Cv32F);
-            luminanceChannel -= currentLuminance.Mean;
-            const double epsilon = 1e-6;
-
-            var scale = targetLuminance.StdDev / (currentLuminance.StdDev + epsilon);
-            luminanceChannel *= scale;
-            luminanceChannel += targetLuminance.Max;
-
-            CvInvoke.Normalize(luminanceChannel, luminanceChannel, 0, 255, NormType.MinMax);
-            luminanceChannel.ConvertTo(luminanceChannel, DepthType.Cv8U);
-
-            // Merge back the channels and convert back to BGR
-            if (useLab)
-            {
-                CvInvoke.Merge(
-                    new VectorOfMat(luminanceChannel, colorSpaceImage.Split()[1], colorSpaceImage.Split()[2]),
-                    colorSpaceImage);
-                CvInvoke.CvtColor(colorSpaceImage, image, ColorConversion.Lab2Bgr);
-            }
-            else
-            {
-                CvInvoke.Merge(
-                    new VectorOfMat(colorSpaceImage.Split()[0], colorSpaceImage.Split()[1], luminanceChannel),
-                    colorSpaceImage);
-                CvInvoke.CvtColor(colorSpaceImage, image, ColorConversion.Hsv2Bgr);
-            }
-
-            var outputFilePath = Path.Combine(outputPath, Path.GetFileName(imagePath));
-            CvInvoke.Imwrite(outputFilePath, image);
-
-            return true;
+            image = OGGCPEAlgorithm.Apply(image);
         }
-        catch (Exception ex)
+
+        Mat luminanceChannel;
+        Mat colorSpaceImage = new Mat();
+
+        if (useLab)
         {
-            AnsiConsole.Console.WriteLine(
-                $"[red]Warning: Error processing image at {imagePath}: {ex.Message}. Skipping this image.[/]");
-            return false;
+            // Convert to CIE L*a*b* and get the L* channel
+            CvInvoke.CvtColor(image, colorSpaceImage, ColorConversion.Bgr2Lab);
+            Mat[] labChannels = colorSpaceImage.Split();
+            luminanceChannel = labChannels[0]; // L* channel
         }
+        else
+        {
+            // Convert to HSV and get the V channel
+            CvInvoke.CvtColor(image, colorSpaceImage, ColorConversion.Bgr2Hsv);
+            Mat[] hsvChannels = colorSpaceImage.Split();
+            luminanceChannel = hsvChannels[2]; // V channel
+        }
+
+
+        // Apply gamma correction, CLAHE, and normalization
+
+        if (!useOptimalGamma)
+        {
+            luminanceChannel = ApplyGammaCorrection(luminanceChannel, gamma, DepthType.Cv16U);
+        }
+
+
+        var tileGridSize = new System.Drawing.Size(kernel, kernel);
+        CvInvoke.CLAHE(luminanceChannel, clipLimit, tileGridSize, luminanceChannel);
+
+        var currentLuminance = LuminanceValues.GetCurrentLuminance(luminanceChannel);
+        luminanceChannel.ConvertTo(luminanceChannel, DepthType.Cv32F);
+        luminanceChannel -= currentLuminance.Mean;
+        const double epsilon = 1e-6;
+
+        var scale = targetLuminance.StdDev / (currentLuminance.StdDev + epsilon);
+        luminanceChannel *= scale;
+        luminanceChannel += targetLuminance.Max;
+
+
+        // Merge back the channels and convert back to BGR
+        CvInvoke.Normalize(luminanceChannel, luminanceChannel, 0, 255, NormType.MinMax);
+        luminanceChannel.ConvertTo(luminanceChannel, DepthType.Cv8U);
+
+        if (useLab)
+        {
+            CvInvoke.Merge(
+                new VectorOfMat(luminanceChannel, colorSpaceImage.Split()[1], colorSpaceImage.Split()[2]),
+                colorSpaceImage);
+            CvInvoke.CvtColor(colorSpaceImage, image, ColorConversion.Lab2Bgr);
+        }
+        else
+        {
+            CvInvoke.Merge(
+                new VectorOfMat(colorSpaceImage.Split()[0], colorSpaceImage.Split()[1], luminanceChannel),
+                colorSpaceImage);
+            CvInvoke.CvtColor(colorSpaceImage, image, ColorConversion.Hsv2Bgr);
+        }
+
+        var outputFilePath = Path.Combine(outputPath, Path.GetFileName(imagePath));
+
+        var parameters = Array.Empty<KeyValuePair<ImwriteFlags, int>>();
+
+        await using var buf = new VectorOfByte();
+        CvInvoke.Imencode(new FileInfo(outputFilePath).Extension, image, buf, parameters);
+        var array = buf.ToArray();
+        await File.WriteAllBytesAsync(outputFilePath, array);
+
+        return true;
     }
 
 
-    private static LuminanceValues GetCurrentLuminance(Mat valueChannel)
+    private static Mat ApplyGammaCorrection(Mat srcFloat, double gamma, DepthType depthType)
     {
-        MCvScalar mean = new(0), stddev = new(0);
-        CvInvoke.MeanStdDev(valueChannel, ref mean, ref stddev);
-
-
-        double currentMin = 0, currentMax = 0;
-        System.Drawing.Point minLoc = new(), maxLoc = new();
-        CvInvoke.MinMaxLoc(valueChannel, ref currentMin, ref currentMax, ref minLoc, ref maxLoc);
-
-
-        return new LuminanceValues(currentMin, currentMax, mean.V0, stddev.V0);
-    }
-
-
-    private static Mat ApplyGammaCorrection(Mat src, double gamma, DepthType depthType = DepthType.Cv8U)
-    {
-        Mat srcFloat = new Mat();
-        Mat dst = new Mat();
-
-        switch (depthType)
-        {
-            // Convert source image to a 32-bit float and normalize based on depth type
-            case DepthType.Cv8U:
-                src.ConvertTo(srcFloat, DepthType.Cv32F, 1.0 / 255.0); // Normalize 8-bit to [0, 1]
-                break;
-            case DepthType.Cv16U:
-                src.ConvertTo(srcFloat, DepthType.Cv32F, 1.0 / 65535.0); // Normalize 16-bit to [0, 1]
-                break;
-            case DepthType.Cv32F:
-                // If the image is already 32F, no scaling needed, just copy to srcFloat
-                srcFloat = src.Clone();
-                break;
-            default:
-                throw new ArgumentException("Unsupported depth type for gamma correction.");
-        }
+        // convert the luminance channel to 32bit float 
+        srcFloat = srcFloat.ConvertScaleTo(DepthType.Cv32F);
 
         // Apply gamma correction (element-wise power transformation)
         CvInvoke.Pow(srcFloat, gamma, srcFloat); // Applies the power transformation to each pixel
 
-        switch (depthType)
-        {
-            // Convert back to the original depth type and scale accordingly
-            case DepthType.Cv8U:
-                srcFloat.ConvertTo(dst, DepthType.Cv8U, 255.0); // Scale back to [0, 255] for 8-bit
-                break;
-            case DepthType.Cv16U:
-                srcFloat.ConvertTo(dst, DepthType.Cv16U, 65535.0); // Scale back to [0, 65535] for 16-bit
-                break;
-            case DepthType.Cv32F:
-                dst = srcFloat.Clone(); // No scaling needed for 32F; just copy the result
-                break;
-            default:
-                throw new ArgumentException("Unsupported depth type for gamma correction.");
-        }
+        // Normalize the luminance channel back to to DepthType
 
-        return dst;
+        return srcFloat.ConvertScaleTo(depthType);
     }
 
 
@@ -389,28 +380,4 @@ public struct ImageLuminanceRecord(string filePath, LuminanceValues luminance)
 {
     public string FilePath { get; set; } = filePath;
     public LuminanceValues Luminance { get; set; } = luminance;
-}
-
-public struct LuminanceValues(double min, double max, double mean, double stdDev)
-{
-    public double Min { get; init; } = min;
-    public double Max { get; init; } = max;
-    public double Mean { get; init; } = mean;
-
-    public double StdDev { get; init; } = stdDev;
-
-    public double this[int i]
-    {
-        get
-        {
-            return i switch
-            {
-                0 => Min,
-                1 => Max,
-                2 => Mean,
-                3 => StdDev,
-                _ => 0
-            };
-        }
-    }
 }
