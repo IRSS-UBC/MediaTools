@@ -1,11 +1,15 @@
 ﻿using TreeBasedCli;
+
 namespace Extractor.Commands;
 
 public static class CommandOptions
 {
+    public const string InputDjisrtLabel = "--SRT";
+    public const string OutputSpatialFileLabel = "--SOUT";
+
     public const string InputLabel = "--input";
     public const string OutputLabel = "--output";
-    
+
     public const string MaskOutputLabel = "--mask-output";
     public const string InputFormatLabel = "--in-format";
     public const string OutputFormatLabel = "--format";
@@ -14,38 +18,40 @@ public static class CommandOptions
     public const string DurationLabel = "--duration";
 
     public const string LengthLabel = "--length";
-    
+
     public const string MaskLabel = "--mask";
-    
+
     public const string EngineLabel = "--engine";
-    
+
     public const string GpuCount = "--gpu-count";
 
-    
+    public const string CoreCount = "--core-count";
+
+
     public const string GlobalAverageLabel = "--global-average";
-    
+
     public const string WindowSizeLabel = "--window-size";
-    
+
     public const string MaxConcurrentTasksLabel = "--max-concurrent-tasks";
-    
+
     public const string GammaLabel = "--gamma";
-    
+
     public const string ClipLimitLabel = "--clip-limit";
-    
+
     public const string KernelSizeLabel = "--kernel-size";
-    
+
     public const string HeadroomLabel = "--headroom";
-    
+
     public const string ColorSpaceLabel = "--color-space";
-    
+
     public const string OptimalGammaCorrectionLabel = "--optimal-gamma-correction";
-    
+
 
     public static readonly CommandOption InputFileOption = new(InputLabel, new[]
     {
         "Required. The input video file."
     });
-    
+
     public static readonly CommandOption InputDirOption = new(InputLabel, new[]
     {
         "Required. The input directory."
@@ -55,8 +61,8 @@ public static class CommandOptions
     {
         "The output path. Default: Name of the input file or dir with an appended suffix."
     });
-    
-    public static readonly CommandOption MaskOutputOption = new (MaskOutputLabel, new[]
+
+    public static readonly CommandOption MaskOutputOption = new(MaskOutputLabel, new[]
     {
         "The output path for the mask. Default: Name of the input file with the relevant extension."
     });
@@ -65,6 +71,14 @@ public static class CommandOptions
     {
         "The input image file format (e.g., .png or .jpg). Default: jpg"
     });
+
+    public static readonly CommandOption InputDJISRTOption = new(InputDjisrtLabel,
+    [
+        "Whether or not to look for the SRT files in the same folder as the video to map output frames to positional information"
+    ]);
+
+    public static readonly CommandOption OutputSpatialFileOption = new(OutputSpatialFileLabel,
+        ["The name of the file to output the spatial mapping to."]);
 
     public static readonly CommandOption OutputFormatOption = new(OutputFormatLabel, new[]
     {
@@ -85,62 +99,66 @@ public static class CommandOptions
     {
         "The output length for square resolutions. Defaults to 128."
     });
-    
+
     public static readonly CommandOption Mask = new(MaskLabel, new[]
     {
         "The mask to apply to the output. Default: none. Example: --mask sky"
     });
-    
+
     public static readonly CommandOption EngineOption = new(EngineLabel, new[]
     {
         "The engine to use for processing. Default: cpu. Options: cpu, cuda, tensor-rt, directml, auto"
     });
-    
-    public static readonly CommandOption ProcessorCountOption = new(GpuCount, new[]
+
+    public static readonly CommandOption GPUCountOption = new(GpuCount, new[]
     {
         "The number of GPUs to use. Default: 1"
     });
+
+    public static readonly CommandOption CPUCountOption = new(CoreCount, [
+        "The number of CPU threads to Use. Default: Processor Count * 2"
+    ]);
 
     public static CommandOption GlobalAverageOption = new(GlobalAverageLabel, new[]
     {
         "Whether or not to use the global average for normalization. Default: false"
     });
-    
+
     public static CommandOption WindowSizeOption = new(WindowSizeLabel, new[]
     {
         "The window size for the global average. Default: 10"
     });
-    
+
     public static CommandOption MaxConcurrentTasksOption = new(MaxConcurrentTasksLabel, new[]
     {
         "The maximum number of concurrent tasks. Default: Number of logical processors."
     });
-    
+
     public static CommandOption GammaOption = new(GammaLabel, new[]
     {
         "The gamma value for the normalization. Default: 0.5"
     });
-    
+
     public static CommandOption ClipLimitOption = new(ClipLimitLabel, new[]
     {
         "The clip limit for the normalization. Default: 10"
     });
-    
+
     public static CommandOption KernelSizeOption = new(KernelSizeLabel, new[]
     {
         "The kernel size for the normalization. Default: 8"
     });
-    
+
     public static CommandOption HeadroomOption = new(HeadroomLabel, new[]
     {
         "The percentage of headroom for the normalization. Default: 0.2. Range: 0-1, keep below 0.5 for most uses."
     });
-    
+
     public static CommandOption ColorSpaceOption = new(ColorSpaceLabel, new[]
     {
         "The color space to use during processing. Default: LAB. Options: LAB, HSV"
     });
-    
+
     public static CommandOption OptimalGammaCorrectionOption = new(OptimalGammaCorrectionLabel, new[]
     {
         "Whether or not to use optimal gamma correction proposed by Inho Jeong & Chul Lee (2021). See Readme.md reference [1]. Default: false"

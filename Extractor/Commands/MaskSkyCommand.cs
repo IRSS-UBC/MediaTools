@@ -19,7 +19,7 @@ public class MaskSkyCommand : LeafCommand<MaskSkyCommand.MaskSkyArguments, MaskS
             CommandOptions.InputFileOption,
             CommandOptions.OutputDirOption,
             CommandOptions.EngineOption,
-            CommandOptions.ProcessorCountOption
+            CommandOptions.GPUCountOption
         })
     {
     }

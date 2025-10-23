@@ -2,14 +2,15 @@
 using Emgu.CV.CvEnum;
 using Emgu.CV.Structure;
 using Emgu.CV.Util;
+using ExifLibrary;
 using Extractor.Algorithms;
 using Extractor.Commands;
-using Extractor.enums;
 using Extractor.Extensions;
 using Extractor.Structs;
 using Spectre.Console;
 using Spectre.Console.Advanced;
 using TreeBasedCli;
+using ColorSpace = Extractor.enums.ColorSpace;
 
 
 namespace Extractor.Handlers;
@@ -129,7 +130,7 @@ public class
             var task = ctx.AddTask("[yellow]Normalizing luminance and saving to disk...[/]", maxValue: files.Length);
 
             const int batchSize = 50;
-             // Adjust the degree of parallelism as needed
+            // Adjust the degree of parallelism as needed
 
             var tasks = new List<Task>();
 
@@ -148,9 +149,15 @@ public class
                         await semaphore.WaitAsync();
                         try
                         {
-                            await NormalizeImageExposure(record.FilePath, outputDirectory,
-                                globalAverage ? averageLuminance : record.Luminance, useCie, optimalGamma, gamma, clipLimit,
+                            var outputFilePath = Path.Combine(outputDirectory, Path.GetFileName(record.FilePath));
+
+                            await NormalizeImageExposure(record.FilePath, outputFilePath,
+                                globalAverage ? averageLuminance : record.Luminance, useCie, optimalGamma, gamma,
+                                clipLimit,
                                 kernel, headroom);
+                            
+                            
+                            await TransferExifTagsAsync(record.FilePath, outputFilePath);
                             task.Increment(1);
                         }
                         finally
@@ -214,7 +221,8 @@ public class
     }
 
 
-    private static async Task<bool> NormalizeImageExposure(string imagePath, string outputPath, LuminanceValues targetLuminance,
+    private static async Task<bool> NormalizeImageExposure(string imagePath, string outputFilePath,
+        LuminanceValues targetLuminance,
         bool useLab, bool useOptimalGamma, double gamma = 0.5, double clipLimit = 10, int kernel = 8,
         double headroom = 0.2)
     {
@@ -285,7 +293,6 @@ public class
             CvInvoke.CvtColor(colorSpaceImage, image, ColorConversion.Hsv2Bgr);
         }
 
-        var outputFilePath = Path.Combine(outputPath, Path.GetFileName(imagePath));
 
         var parameters = Array.Empty<KeyValuePair<ImwriteFlags, int>>();
 
@@ -310,6 +317,9 @@ public class
 
         return srcFloat.ConvertScaleTo(depthType);
     }
+
+
+
 
 
     private static LuminanceValues[] CalculateRollingAverage(IReadOnlyList<ImageLuminanceRecord> luminanceValues,
@@ -374,6 +384,22 @@ public class
 
         return rollingAverages;
     }
+    
+    
+    private async Task TransferExifTagsAsync(string sourceFilePath, string destFilePath)
+    {
+        var sourceFile = await ImageFile.FromFileAsync(sourceFilePath);
+
+        var destinationFile = await ImageFile.FromFileAsync(destFilePath);
+
+
+        foreach (ExifProperty property in sourceFile.Properties)
+        {
+            destinationFile.Properties.Set(property);
+        }
+
+        await destinationFile.SaveAsync(destFilePath);
+    }
 }
 
 public struct ImageLuminanceRecord(string filePath, LuminanceValues luminance)
@@ -381,3 +407,5 @@ public struct ImageLuminanceRecord(string filePath, LuminanceValues luminance)
     public string FilePath { get; set; } = filePath;
     public LuminanceValues Luminance { get; set; } = luminance;
 }
+
+

@@ -12,7 +12,7 @@
         <AssemblyOriginatorKeyFile>Resources\OlsonKey.snk</AssemblyOriginatorKeyFile>
         <ApplicationIcon>Resources\logo.ico</ApplicationIcon>
         <Company>IRSS</Company>
-        <AssemblyVersion>0.3.1.0</AssemblyVersion>
+        <AssemblyVersion>0.4.1.0</AssemblyVersion>
         <NeutralLanguage>en</NeutralLanguage>
         <LangVersion>preview</LangVersion>
         <Product>IRSS Media Tools</Product>
@@ -27,6 +27,7 @@
     <ItemGroup>
         <PackageReference Include="Emgu.CV" Version="4.7.0.5276" />
         <PackageReference Include="Emgu.CV.runtime.windows" Version="4.7.0.5276" />
+        <PackageReference Include="ExifLibNet.Updated" Version="2.1.5" />
         <PackageReference Include="FFMediaToolkit" Version="4.4.1" />
         <PackageReference Include="Lib.Harmony" Version="2.3.0-prerelease.2" />
         <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.0-preview.3.23174.8" />
