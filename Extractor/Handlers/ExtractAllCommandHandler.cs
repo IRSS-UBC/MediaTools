@@ -64,8 +64,11 @@ public class ExtractAllCommandHandler : ILeafCommandHandler<ExtractAllCommand.Ex
                 Dictionary<int, DjiTelemetryData>? djiTelemetryDatas = null;
                 if (extractAllArguments.ExtractGeoSpatial)
                 {
-                    djiTelemetryDatas = (await ExtractCoordinates(extractAllArguments, extractGeospatialTask))
-                        .ToDictionary(x => x.FrameCount, x => x);
+                    var rawTelemData = await ExtractCoordinates(extractAllArguments, extractGeospatialTask);
+                    if (rawTelemData != null)
+                    {
+                        djiTelemetryDatas = rawTelemData.ToDictionary(x => x.FrameCount, x => x);
+                    }
                 }
 
 
@@ -78,18 +81,24 @@ public class ExtractAllCommandHandler : ILeafCommandHandler<ExtractAllCommand.Ex
             $"Finished extracting {finalFrameCount} frames in {Math.Round(stopwatch.ElapsedMilliseconds * 0.001, 2)} seconds.");
     }
 
-    private async Task<List<DjiTelemetryData>> ExtractCoordinates(
+    private async Task<List<DjiTelemetryData>?> ExtractCoordinates(
         ExtractAllCommand.ExtractAllArguments extractAllArguments,
         ProgressTask? extractGeospatialTask)
     {
-        extractGeospatialTask.StartTask();
+        extractGeospatialTask?.StartTask();
         var geospatialInfoPath = Path.ChangeExtension(extractAllArguments.InputFile, ".srt");
+
+        if (!File.Exists(geospatialInfoPath))
+        {
+            AnsiConsole.MarkupLine("[red]No geospatial information found...[/]");
+            return null;
+        }
 
         var fileContents = await File.ReadAllTextAsync(geospatialInfoPath);
 
         var records = SrtParser.Parse(fileContents);
 
-        extractGeospatialTask.StopTask();
+        extractGeospatialTask?.StopTask();
 
 
         return records;
@@ -198,7 +207,7 @@ public class ExtractAllCommandHandler : ILeafCommandHandler<ExtractAllCommand.Ex
 
         var processingTasks = new List<Task>();
         using var concurrencySemaphore = new SemaphoreSlim(extractAllArguments.CpuCount);
-        
+
         var videoInfo = file.Video.Info;
         double srcFps = videoInfo.AvgFrameRate;
         if (srcFps <= 0)
@@ -216,7 +225,7 @@ public class ExtractAllCommandHandler : ILeafCommandHandler<ExtractAllCommand.Ex
             var dropRatio = extractAllArguments.DropRatio;
             if (dropRatio is < 0 or >= 1)
                 throw new ArgumentException("Drop ratio must be between 0 (none) and 1 (drop all).", nameof(dropRatio));
-            
+
             if (srcFps <= 0)
                 srcFps = 30.0; // fallback
 
@@ -224,7 +233,8 @@ public class ExtractAllCommandHandler : ILeafCommandHandler<ExtractAllCommand.Ex
         }
 
         ulong frameIndex = 0;
-        foreach (var frame in file.GetFrames(targetFps, extractAllArguments.StartPosition, extractAllArguments.EndPosition))
+        foreach (var frame in file.GetFrames(targetFps, extractAllArguments.StartPosition,
+                     extractAllArguments.EndPosition))
         {
             await concurrencySemaphore.WaitAsync();
 

@@ -2,7 +2,7 @@
 
     <PropertyGroup>
         <OutputType>Exe</OutputType>
-        <TargetFramework>net7.0</TargetFramework>
+        <TargetFramework>net10.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -12,7 +12,7 @@
         <AssemblyOriginatorKeyFile>Resources\OlsonKey.snk</AssemblyOriginatorKeyFile>
         <ApplicationIcon>Resources\logo.ico</ApplicationIcon>
         <Company>IRSS</Company>
-        <AssemblyVersion>0.4.1.0</AssemblyVersion>
+        <AssemblyVersion>0.4.2.0</AssemblyVersion>
         <NeutralLanguage>en</NeutralLanguage>
         <LangVersion>latest</LangVersion>
         <Product>IRSS Media Tools</Product>
