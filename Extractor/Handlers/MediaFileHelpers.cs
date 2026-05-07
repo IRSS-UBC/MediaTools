@@ -1,6 +1,7 @@
 ﻿using System.Drawing;
 using Extractor.Extensions;
 using FFMediaToolkit.Decoding;
+using FFMediaToolkit.Graphics;
 using Spectre.Console;
 using Image = SixLabors.ImageSharp.Image;
 
@@ -46,16 +47,13 @@ public static class MediaFileHelpers
             double startSeconds = 0, double? stopSeconds = null)
         {
             var videoInfo = mediaFile.Video.Info;
-           
-
+   
             if (startSeconds < 0)
                 throw new ArgumentException("Start position must be zero or greater.", nameof(startSeconds));
 
             if (stopSeconds <= startSeconds)
                 throw new ArgumentException("End position must be strictly greater than start position.",
                     nameof(stopSeconds));
-
-            
 
             var targetInterval = TimeSpan.FromSeconds(1.0 / targetFps);
             var duration = videoInfo.Duration;
@@ -74,7 +72,16 @@ public static class MediaFileHelpers
 
             for (var t = startTime; t < endTime; t += targetInterval)
             {
-                var imageData = mediaFile.Video.GetFrame(t);
+                ImageData imageData;
+                try
+                {
+                    imageData = mediaFile.Video.GetFrame(t);
+                }
+                catch (EndOfStreamException)
+                {
+                  
+                    yield break; 
+                }
 
                 var bitmap = imageData.ToBitmap();
 

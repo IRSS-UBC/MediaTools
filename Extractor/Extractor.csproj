@@ -20,7 +20,6 @@
 
     <PropertyGroup>
         <PublishReadyToRun>true</PublishReadyToRun>
-        <PublishTrimmed>true</PublishTrimmed>
         <PublishReadyToRunComposite>true</PublishReadyToRunComposite>
     </PropertyGroup>
 
